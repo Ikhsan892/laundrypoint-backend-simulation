@@ -26,6 +26,7 @@ const orderInclude = {
   payments: true,
   customer: true,
   cashier: true,
+  adjustments: { orderBy: { createdAt: 'desc' }, take: 10 },
 } satisfies Prisma.OrderInclude
 
 // ── Schemas ───────────────────────────────────────────────────

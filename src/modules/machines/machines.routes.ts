@@ -182,3 +182,37 @@ machinesRouter.post(
     res.json({ data: serializeMachine(machine) })
   }),
 )
+
+// POST /api/machines/:id/handoff  { toStatus? }
+// Advance the held order to the next stage (default SETRIKA) and free the machine.
+machinesRouter.post(
+  '/:id/handoff',
+  requireAuth,
+  validate({
+    body: z.object({
+      toStatus: z.enum(['CUCI', 'SETRIKA', 'PACKING', 'SIAP_AMBIL', 'SELESAI']).optional(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const toStatus = (req.body.toStatus ?? 'SETRIKA') as
+      | 'CUCI'
+      | 'SETRIKA'
+      | 'PACKING'
+      | 'SIAP_AMBIL'
+      | 'SELESAI'
+    const machine = await prisma.machine.findUnique({ where: { id: req.params.id } })
+    if (!machine) throw ApiError.notFound('Mesin')
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (machine.currentOrderId) {
+        await tx.order.update({ where: { id: machine.currentOrderId }, data: { status: toStatus } })
+      }
+      return tx.machine.update({
+        where: { id: machine.id },
+        data: { currentOrderId: null, status: 'IDLE', startedAt: null, lastUsedAt: new Date() },
+        include: machineInclude,
+      })
+    })
+    res.json({ data: serializeMachine(updated) })
+  }),
+)

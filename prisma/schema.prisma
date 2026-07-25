@@ -81,6 +81,12 @@ enum MachineStatus {
   MAINTENANCE // perbaikan
 }
 
+enum AdjustmentStatus {
+  PENDING // menunggu approval
+  APPROVED // disetujui — diterapkan ke sortedLoad
+  REJECTED // ditolak
+}
+
 // ─────────────────────────── Models ──────────────────────────
 
 model Outlet {
@@ -172,6 +178,7 @@ model Order {
   items         OrderItem[]
   payments      Payment[]
   machine       Machine?      @relation("MachineOrder")
+  adjustments   OrderAdjustment[]
   sortedLoad    Json? // hasil "Cek & Pilah Cucian" (basket putih/hitam/satuan)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -179,6 +186,26 @@ model Order {
   @@index([status])
   @@index([customerId])
   @@index([createdAt])
+}
+
+// A requested reduction of sorted items — needs approval before it applies.
+model OrderAdjustment {
+  id              String           @id @default(cuid())
+  order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId         String
+  status          AdjustmentStatus @default(PENDING)
+  reason          String?
+  changes         Json // [{ basket, itemId, name, emoji, fromQty, toQty }]
+  requestedById   String?
+  requestedByName String?
+  reviewedById    String?
+  reviewedByName  String?
+  reviewedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([orderId])
+  @@index([status])
 }
 
 model Machine {

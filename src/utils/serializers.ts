@@ -4,6 +4,7 @@ import type {
   Employee,
   Machine,
   Order,
+  OrderAdjustment,
   OrderItem,
   Payment,
   Service,
@@ -123,11 +124,28 @@ function serializePayment(p: Payment) {
   }
 }
 
+export function serializeAdjustment(a: OrderAdjustment) {
+  return {
+    id: a.id,
+    orderId: a.orderId,
+    status: a.status.toLowerCase(), // 'pending' | 'approved' | 'rejected'
+    reason: a.reason,
+    changes: a.changes,
+    requestedById: a.requestedById,
+    requestedByName: a.requestedByName,
+    reviewedById: a.reviewedById,
+    reviewedByName: a.reviewedByName,
+    reviewedAt: a.reviewedAt,
+    createdAt: a.createdAt,
+  }
+}
+
 type OrderWithRelations = Order & {
   items?: OrderItem[]
   payments?: Payment[]
   customer?: Customer | null
   cashier?: Employee | null
+  adjustments?: OrderAdjustment[]
 }
 
 type MachineWithOrder = Machine & { currentOrder?: (Order & { customer?: Customer | null }) | null }
@@ -177,6 +195,7 @@ export function serializeOrder(o: OrderWithRelations) {
     cashier: o.cashier ? serializeEmployee(o.cashier) : null,
     items: o.items?.map(serializeItem) ?? [],
     payments: o.payments?.map(serializePayment) ?? [],
+    adjustments: o.adjustments?.map(serializeAdjustment) ?? [],
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
   }
