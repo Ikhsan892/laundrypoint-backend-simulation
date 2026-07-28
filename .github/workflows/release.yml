@@ -1,0 +1,65 @@
+name: release
+
+# Build & push the image ONLY when a tag is pushed to this backend repo
+# (e.g. `git tag v1.0.0 && git push origin v1.0.0`). No branch/PR builds.
+# The frontend is expected to be prebuilt into ./public and committed
+# (run `make web` before tagging).
+on:
+  push:
+    tags:
+      - 'v*' # change to '*' to match any tag
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fail if frontend build is missing
+        run: |
+          test -f public/index.html || {
+            echo "::error::public/index.html not found. Run 'make web' and commit ./public before tagging.";
+            exit 1;
+          }
+
+      # GHCR image names must be lowercase.
+      - name: Compute image name
+        id: img
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.img.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

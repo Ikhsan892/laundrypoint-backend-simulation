@@ -1,0 +1,15 @@
+# keep the build context small — but DO include ./public (the built frontend)
+node_modules
+dist
+.git
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+coverage
+.vscode
+.idea
+.code-review-graph
+*.local
+prisma/*.db

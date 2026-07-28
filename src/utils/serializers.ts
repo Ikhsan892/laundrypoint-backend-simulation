@@ -2,6 +2,7 @@
 import type {
   Customer,
   Employee,
+  LostFound,
   Machine,
   Order,
   OrderAdjustment,
@@ -140,6 +141,20 @@ export function serializeAdjustment(a: OrderAdjustment) {
   }
 }
 
+export function serializeLostFound(lf: LostFound) {
+  return {
+    id: lf.id,
+    orderId: lf.orderId,
+    description: lf.description,
+    photo: lf.photo,
+    station: lf.station,
+    status: lf.status,
+    reportedById: lf.reportedById,
+    reportedByName: lf.reportedByName,
+    createdAt: lf.createdAt,
+  }
+}
+
 type OrderWithRelations = Order & {
   items?: OrderItem[]
   payments?: Payment[]
@@ -187,6 +202,8 @@ export function serializeOrder(o: OrderWithRelations) {
     total: o.total,
     estimasi: o.estimasi,
     estimatedAt: o.estimatedAt,
+    rackLabel: o.rackLabel,
+    packPhoto: o.packPhoto ?? null,
     sortedLoad: o.sortedLoad ?? null,
     outletId: o.outletId,
     customerId: o.customerId,

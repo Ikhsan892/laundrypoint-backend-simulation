@@ -1,0 +1,31 @@
+# Laundry Point POS — self-contained stack (Postgres + single app image).
+#   cp .env.example .env   # set secrets
+#   make first-deploy      # up + schema + seed + health
+# The app image serves the API (/api) AND the Vue frontend on port 3000.
+
+services:
+  app:
+    # Released image from CI…
+    image: ${IMAGE:-ghcr.io/OWNER/laundrypoint}:${TAG:-latest}
+    # …or build locally: `docker compose build` (needs ./public — run `make web` first)
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-admin}@db:5432/${POSTGRES_DB:-laundrypoint}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+      RUN_SEED: ${RUN_SEED:-false}
+    ports:
+      - '${APP_PORT:-3000}:3000'
+
+volumes:
+  db-data:

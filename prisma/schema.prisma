@@ -177,10 +177,13 @@ model Order {
   total         Int           @default(0)
   estimasi      String? // human label, e.g. "Sen, 27 Mei"
   estimatedAt   DateTime?
+  rackLabel     String? // shelf/rack location once packed (e.g. "R-12")
+  packPhoto     String?  @db.Text // photo of the folded/packed laundry (base64)
   items         OrderItem[]
   payments      Payment[]
   machine       Machine?      @relation("MachineOrder")
   adjustments   OrderAdjustment[]
+  lostFound     LostFound[]
   sortedLoad    Json? // hasil "Cek & Pilah Cucian" (basket putih/hitam/satuan)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -205,6 +208,23 @@ model OrderAdjustment {
   reviewedAt      DateTime?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+}
+
+// A lost-and-found item logged at a station, optionally with a photo.
+model LostFound {
+  id             String   @id @default(cuid())
+  order          Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderId        String?
+  description    String
+  photo          String?  @db.Text // data URL (base64), compressed client-side
+  station        String? // e.g. "Setrika"
+  status         String   @default("open") // open | claimed
+  reportedById   String?
+  reportedByName String?
+  createdAt      DateTime @default(now())
 
   @@index([orderId])
   @@index([status])

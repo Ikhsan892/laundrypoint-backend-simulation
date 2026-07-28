@@ -282,3 +282,78 @@ ordersRouter.post(
     res.status(201).json({ data: serializeOrder(updated), change })
   }),
 )
+
+// POST /api/orders/:id/pack — packing done → ready for pickup (SIAP_AMBIL) + rack.
+ordersRouter.post(
+  '/:id/pack',
+  requireAuth,
+  validate({
+    body: z.object({
+      rackLabel: z.string().max(40).optional(),
+      packPhoto: z
+        .string()
+        .regex(/^data:image\/(png|jpe?g|webp);base64,/, 'Foto harus data URL gambar')
+        .max(8_000_000)
+        .optional(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const body = req.body as { rackLabel?: string; packPhoto?: string }
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { status: 'SIAP_AMBIL', rackLabel: body.rackLabel, packPhoto: body.packPhoto },
+      include: orderInclude,
+    })
+    res.json({ data: serializeOrder(order) })
+  }),
+)
+
+// POST /api/orders/:id/handover — hand to customer → SELESAI, settling an open
+// bill first if a payment method is provided.
+ordersRouter.post(
+  '/:id/handover',
+  requireAuth,
+  validate({
+    body: z.object({
+      method: z.enum(['CASH', 'QRIS_BTN', 'QRIS_GOPAY', 'TRANSFER']).optional(),
+      cashReceived: z.number().int().nonnegative().optional(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const body = req.body as { method?: string; cashReceived?: number }
+    const order = await prisma.order.findUnique({ where: { id: req.params.id } })
+    if (!order) throw ApiError.notFound('Order')
+
+    if (order.paymentStatus !== 'LUNAS' && !body.method) {
+      throw ApiError.badRequest('Order belum lunas — pilih metode pembayaran')
+    }
+    if (body.method === 'CASH' && body.cashReceived != null && body.cashReceived < order.total) {
+      throw ApiError.badRequest('Uang diterima kurang dari total')
+    }
+    const change =
+      body.method === 'CASH' && body.cashReceived != null
+        ? Math.max(0, body.cashReceived - order.total)
+        : null
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (order.paymentStatus !== 'LUNAS' && body.method) {
+        await tx.payment.create({
+          data: {
+            orderId: order.id,
+            method: body.method as 'CASH' | 'QRIS_BTN' | 'QRIS_GOPAY' | 'TRANSFER',
+            timing: 'NOW',
+            amount: order.total,
+            cashReceived: body.cashReceived,
+            change,
+          },
+        })
+      }
+      return tx.order.update({
+        where: { id: order.id },
+        data: { status: 'SELESAI', paymentStatus: 'LUNAS' },
+        include: orderInclude,
+      })
+    })
+    res.json({ data: serializeOrder(updated), change })
+  }),
+)

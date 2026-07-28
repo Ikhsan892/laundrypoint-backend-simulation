@@ -32,7 +32,8 @@ export function createApp() {
       credentials: true,
     }),
   )
-  app.use(express.json({ limit: '1mb' }))
+  // 8mb to accommodate base64 Lost & Found photos (compressed client-side).
+  app.use(express.json({ limit: '8mb' }))
   app.use(express.urlencoded({ extended: true }))
   if (!isProd) app.use(morgan('dev'))
 
