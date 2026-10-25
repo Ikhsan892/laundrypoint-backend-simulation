@@ -1,0 +1,1 @@
+import{p as e,u as t}from"./utils-CGTm9zWU.js";import{j as n}from"./index-CmHh0_Mw.js";var r=e(t(),1);function i(){let e=(0,r.useContext)(n);if(e===null)throw Error(`useDialog must be used inside <DialogProvider>`);return e}export{i as t};

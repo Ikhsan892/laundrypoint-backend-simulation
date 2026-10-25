@@ -1,1 +1,0 @@
-var e={Kasir:`bg-[#f0a44a]`,"Cuci / Kering":`bg-[#5b9df9]`,Setrika:`bg-[#f0684a]`,Packing:`bg-[#f472b6]`,Owner:`bg-[#a855f7]`},t=[`#5b9df9`,`#f0a44a`,`#93c5fd`,`#f0684a`,`#f472b6`,`#fb923c`,`#f97316`,`#a855f7`];export{e as n,t};

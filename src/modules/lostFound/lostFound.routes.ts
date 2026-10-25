@@ -62,7 +62,7 @@ lostFoundRouter.post(
     const item = await prisma.lostFound.create({
       data: {
         orderId: body.orderId,
-        description: body.description?.trim() || 'Barang temuan',
+        description: body.description?.trim() || 'Barang kehilangan',
         photo: body.photo,
         station: body.station,
         reportedById: body.reportedById,

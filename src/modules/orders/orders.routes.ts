@@ -380,6 +380,28 @@ ordersRouter.post(
   }),
 )
 
+// POST /api/orders/:id/wash-photo — foto cucian setelah Cek & Pilah di station Cuci & Kering.
+ordersRouter.post(
+  '/:id/wash-photo',
+  requireAuth,
+  validate({
+    body: z.object({
+      photo: z
+        .string()
+        .regex(/^data:image\/(png|jpe?g|webp);base64,/, 'Foto harus data URL gambar')
+        .max(8_000_000),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { washPhoto: (req.body as { photo: string }).photo },
+      include: orderInclude,
+    })
+    res.json({ data: serializeOrder(order) })
+  }),
+)
+
 // POST /api/orders/:id/handover — hand to customer → SELESAI, settling an open
 // bill first if a payment method is provided.
 ordersRouter.post(

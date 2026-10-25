@@ -255,3 +255,106 @@ machinesRouter.post(
     res.json({ data: serializeMachine(updated) })
   }),
 )
+
+// ── Operasi per basket: satu basket (putih / hitam / satuan) bisa dipegang beberapa mesin ──
+const loadKey = z.object({
+  orderId: z.string().min(1),
+  basket: z.enum(['putih', 'hitam', 'satuan']).optional(), // kosong = order lama tanpa basket
+})
+type LoadKey = z.infer<typeof loadKey>
+const loadWhere = ({ orderId, basket }: LoadKey) => ({ currentOrderId: orderId, currentBasket: basket ?? null })
+const FREE = { currentOrderId: null, currentBasket: null, status: 'IDLE' as const, startedAt: null }
+
+// POST /api/machines/load  { orderId, basket?, machineIds[], durationMin? }
+// Set mesin yang memegang basket ini = persis `machineIds` (semua satu jenis). Mesin lama basket ini
+// (mis. mesin cuci saat pindah ke pengering) dibebaskan. Order → CUCI.
+machinesRouter.post(
+  '/load',
+  requireAuth,
+  validate({
+    body: loadKey.extend({
+      machineIds: z.array(z.string().min(1)).min(1, 'Pilih minimal satu mesin'),
+      durationMin: z.number().int().positive().optional(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const body = req.body as LoadKey & { machineIds: string[]; durationMin?: number }
+    const targets = await prisma.machine.findMany({ where: { id: { in: body.machineIds } } })
+    if (targets.length !== new Set(body.machineIds).size) throw ApiError.notFound('Mesin')
+    if (new Set(targets.map((m) => m.type)).size > 1) throw ApiError.badRequest('Mesin harus satu jenis')
+    for (const m of targets) {
+      if (m.status === 'MAINTENANCE') throw ApiError.badRequest(`${m.name} sedang perbaikan`)
+      const sameLoad = m.currentOrderId === body.orderId && m.currentBasket === (body.basket ?? null)
+      if (m.currentOrderId && !sameLoad) throw ApiError.badRequest(`${m.name} sedang dipakai order lain`)
+    }
+    if (!(await prisma.order.findUnique({ where: { id: body.orderId } }))) throw ApiError.notFound('Order')
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.machine.updateMany({
+        where: { ...loadWhere(body), id: { notIn: body.machineIds } },
+        data: { ...FREE, lastUsedAt: new Date() },
+      })
+      await tx.order.update({ where: { id: body.orderId }, data: { status: 'CUCI' } })
+      return Promise.all(
+        targets.map((m) =>
+          tx.machine.update({
+            where: { id: m.id },
+            data: {
+              currentOrderId: body.orderId,
+              currentBasket: body.basket ?? null,
+              status: 'RUNNING',
+              startedAt: new Date(),
+              durationMin: body.durationMin ?? m.durationMin ?? (m.type === 'DRYER' ? 45 : 32),
+            },
+            include: machineInclude,
+          }),
+        ),
+      )
+    })
+    res.json({ data: updated.map(serializeMachine) })
+  }),
+)
+
+// POST /api/machines/load/done  { orderId, basket? } — siklus semua mesin basket ini selesai.
+// (Bukan /load/complete: path itu tertangkap route /:id/complete di atas.)
+machinesRouter.post(
+  '/load/done',
+  requireAuth,
+  validate({ body: loadKey }),
+  asyncHandler(async (req, res) => {
+    const result = await prisma.machine.updateMany({ where: loadWhere(req.body as LoadKey), data: { status: 'DONE' } })
+    res.json({ data: { count: result.count } })
+  }),
+)
+
+// POST /api/machines/load/finish  { orderId, basket?, toStatus? }
+// Basket selesai cuci-kering: lepas semua mesinnya, tandai `doneAt`; order naik tahap
+// (default SETRIKA, atau PACKING kalau needsIron=false) kalau semua basket berisi sudah selesai.
+machinesRouter.post(
+  '/load/finish',
+  requireAuth,
+  validate({ body: loadKey.extend({ toStatus: z.enum(['SETRIKA', 'PACKING']).optional() }) }),
+  asyncHandler(async (req, res) => {
+    const body = req.body as LoadKey & { toStatus?: 'SETRIKA' | 'PACKING' }
+    const order = await prisma.order.findUnique({ where: { id: body.orderId } })
+    if (!order) throw ApiError.notFound('Order')
+    const toStatus = body.toStatus ?? 'SETRIKA'
+    const next = toStatus === 'SETRIKA' && !order.needsIron ? 'PACKING' : toStatus
+
+    const advanced = await prisma.$transaction(async (tx) => {
+      await tx.machine.updateMany({ where: loadWhere(body), data: { ...FREE, lastUsedAt: new Date() } })
+      let advance: boolean
+      if (body.basket) {
+        const load = (order.sortedLoad ?? {}) as Record<string, SortBasket | undefined>
+        load[body.basket] = { ...(load[body.basket] ?? { items: [] }), doneAt: new Date().toISOString() }
+        await tx.order.update({ where: { id: order.id }, data: { sortedLoad: load as Prisma.InputJsonValue } })
+        advance = (['putih', 'hitam', 'satuan'] as const).every((key) => basketQty(load[key]) === 0 || !!load[key]?.doneAt)
+      } else {
+        advance = (await tx.machine.count({ where: { currentOrderId: order.id } })) === 0
+      }
+      if (advance) await tx.order.update({ where: { id: order.id }, data: { status: next } })
+      return advance
+    })
+    res.json({ data: { advanced, status: advanced ? next : order.status } })
+  }),
+)

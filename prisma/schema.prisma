@@ -193,6 +193,7 @@ model Order {
   rackLabel     String? // shelf/rack location once packed (e.g. "R-12")
   packPhoto     String?  @db.Text // photo of the folded/packed laundry (base64)
   ironPhoto     String?  @db.Text // "Foto Hasil" — documentation photo at Setrika
+  washPhoto     String?  @db.Text // foto cucian setelah Cek & Pilah (station Cuci & Kering)
   needsWash     Boolean  @default(true) // routing: false → skip Cuci
   needsIron     Boolean  @default(true) // routing: false → skip Setrika
   items         OrderItem[]

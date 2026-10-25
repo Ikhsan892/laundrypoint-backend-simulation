@@ -216,6 +216,7 @@ export function serializeOrder(o: OrderWithRelations) {
     rackLabel: o.rackLabel,
     packPhoto: o.packPhoto ?? null,
     ironPhoto: o.ironPhoto ?? null,
+    washPhoto: o.washPhoto ?? null,
     needsWash: o.needsWash,
     needsIron: o.needsIron,
     sortedLoad: o.sortedLoad ?? null,

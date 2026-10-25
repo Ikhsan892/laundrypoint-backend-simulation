@@ -1,1 +1,0 @@
-import{pt as e,v as t}from"./_plugin-vue_export-helper-pO9wv_uk.js";import{i as n}from"./useForwardExpose-CynkLHQQ.js";function r(r){return t(()=>e(r)?!!n(r)?.closest(`form`):!0)}export{r as t};
