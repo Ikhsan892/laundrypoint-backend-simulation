@@ -15,6 +15,9 @@ export const servicesRouter = Router()
 
 const UI_CATEGORIES = ['kiloan', 'non-kiloan', '3rd-party'] as const
 const UI_UNITS = ['kg', 'pcs', 'm', 'psg'] as const
+const UI_PACKAGES = ['reguler', 'sameday'] as const
+const toPackage = (p: (typeof UI_PACKAGES)[number] | null) =>
+  p ? (p.toUpperCase() as 'REGULER' | 'SAMEDAY') : null
 
 const listQuery = z.object({
   category: z.enum(UI_CATEGORIES).optional(),
@@ -30,7 +33,11 @@ const bodySchema = z.object({
   price: z.number().int().nonnegative(),
   unit: z.enum(UI_UNITS),
   step: z.number().positive().default(1),
+  minQty: z.number().positive().nullable().optional(),
+  needsWash: z.boolean().default(true),
+  needsIron: z.boolean().default(true),
   category: z.enum(UI_CATEGORIES),
+  package: z.enum(UI_PACKAGES).nullable().optional(), // null = 3rd party
   duration: z.string().optional(),
   active: z.boolean().default(true),
 })
@@ -77,7 +84,11 @@ servicesRouter.post(
         price: body.price,
         unit: fromUiUnit(body.unit)!,
         step: body.step,
+        minQty: body.minQty ?? null,
+        needsWash: body.needsWash,
+        needsIron: body.needsIron,
         category: fromUiCategory(body.category)!,
+        package: toPackage(body.package ?? null),
         duration: body.duration,
         active: body.active,
       },
@@ -104,8 +115,12 @@ servicesRouter.patch(
         step: body.step,
         duration: body.duration,
         active: body.active,
+        ...(body.minQty !== undefined ? { minQty: body.minQty } : {}),
+        ...(body.needsWash !== undefined ? { needsWash: body.needsWash } : {}),
+        ...(body.needsIron !== undefined ? { needsIron: body.needsIron } : {}),
         ...(body.unit ? { unit: fromUiUnit(body.unit) } : {}),
         ...(body.category ? { category: fromUiCategory(body.category) } : {}),
+        ...(body.package !== undefined ? { package: toPackage(body.package) } : {}),
       },
     })
     res.json({ data: serializeService(service) })

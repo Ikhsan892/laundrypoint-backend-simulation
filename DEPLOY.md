@@ -9,7 +9,7 @@ CORS or extra host).
 ```
  make web            git tag v1.0.0 + push       GitHub Action
  (build FE  ───────► (backend repo) ───────────► builds & pushes
-  into ./public)                                  ghcr.io/OWNER/laundrypoint
+  into ./public)                                  tiul/laundrypoint (Docker Hub)
 ```
 
 1. **Build the frontend into the backend** — the Vue source lives in `../cashier`:
@@ -21,16 +21,20 @@ CORS or extra host).
    ```bash
    make release V=v1.0.0     # = git tag v1.0.0 && git push origin v1.0.0
    ```
-   `.github/workflows/release.yml` runs on tag push only (no branch/PR builds),
-   builds the Docker image (using the committed `./public`), and pushes it to
-   `ghcr.io/<owner>/<repo>` tagged `1.0.0`, `1.0`, `v1.0.0`, `latest`.
-   It uses the built-in `GITHUB_TOKEN` — no secrets to configure. If `./public`
-   is missing, the job fails early with a clear message.
+   `.github/workflows/release.yml` runs only on semver tags `v*.*.*` (no branch/PR
+   builds), builds the Docker image (using the committed `./public`), and pushes it
+   to Docker Hub `tiul/laundrypoint` tagged `1.0.0`, `1.0`, `v1.0.0`, `latest`
+   (`latest` is skipped for pre-releases like `v1.0.0-rc.1`). If `./public` is
+   missing, the job fails early with a clear message.
+
+   **One-time setup:** add repo secret `DOCKERHUB_TOKEN` (GitHub → Settings →
+   Secrets and variables → Actions) containing a Docker Hub access token for user
+   `tiul` with *Read & Write* scope.
 
 ## Run it on a server
 
 ```bash
-cp .env.example .env      # set IMAGE=ghcr.io/OWNER/laundrypoint, JWT_SECRET, POSTGRES_PASSWORD
+cp .env.example .env      # set IMAGE=tiul/laundrypoint, JWT_SECRET, POSTGRES_PASSWORD
 make first-deploy         # up (db+app) + db push + seed + health
 ```
 

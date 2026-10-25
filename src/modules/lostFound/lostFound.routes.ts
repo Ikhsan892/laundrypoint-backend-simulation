@@ -22,7 +22,7 @@ const listQuery = z.object({
 
 const createSchema = z.object({
   orderId: z.string().optional(),
-  description: z.string().min(1, 'Deskripsi wajib diisi'),
+  description: z.string().optional(),
   photo: photoSchema.optional(),
   station: z.string().optional(),
   reportedById: z.string().optional(),
@@ -62,7 +62,7 @@ lostFoundRouter.post(
     const item = await prisma.lostFound.create({
       data: {
         orderId: body.orderId,
-        description: body.description,
+        description: body.description?.trim() || 'Barang temuan',
         photo: body.photo,
         station: body.station,
         reportedById: body.reportedById,

@@ -66,7 +66,11 @@ export function serializeService(s: Service) {
     price: s.price,
     unit: toUiUnit(s.unit),
     step: s.step,
+    minQty: s.minQty,
+    needsWash: s.needsWash,
+    needsIron: s.needsIron,
     category: toUiCategory(s.category),
+    package: s.package?.toLowerCase() ?? null, // 'reguler' | 'sameday' | null (3rd party)
     duration: s.duration,
     active: s.active,
   }
@@ -88,13 +92,16 @@ export function serializeEmployee(e: Employee) {
   }
 }
 
-export function serializeCustomer(c: Customer) {
+// `_count.orders` ikut kalau di-include → isNew (pelanggan baru wajib bayar di awal).
+export function serializeCustomer(c: Customer & { _count?: { orders: number } }) {
   return {
     id: c.id,
     name: c.name,
     phone: c.phone,
+    address: c.address,
     memberLabel: c.memberTier,
     discountPct: c.discountPct,
+    ...(c._count ? { isNew: c._count.orders === 0 } : {}),
   }
 }
 
@@ -178,11 +185,13 @@ export function serializeMachine(m: MachineWithOrder) {
     durationMin: m.durationMin,
     lastUsedAt: m.lastUsedAt,
     currentOrderId: m.currentOrderId,
+    currentBasket: m.currentBasket, // 'putih' | 'hitam' | null
     currentOrder: order
       ? {
           id: order.id,
           noNota: order.noNota,
           customerName: order.customer?.name ?? null,
+          needsIron: order.needsIron,
         }
       : null,
   }
@@ -196,6 +205,8 @@ export function serializeOrder(o: OrderWithRelations) {
     paymentStatus: o.paymentStatus,
     notes: o.notes,
     delivery: o.delivery,
+    package: o.package?.toLowerCase() ?? null,
+    scalePhoto: o.scalePhoto ?? null,
     discountPct: o.discountPct,
     subtotal: o.subtotal,
     discount: o.discount,
@@ -204,6 +215,9 @@ export function serializeOrder(o: OrderWithRelations) {
     estimatedAt: o.estimatedAt,
     rackLabel: o.rackLabel,
     packPhoto: o.packPhoto ?? null,
+    ironPhoto: o.ironPhoto ?? null,
+    needsWash: o.needsWash,
+    needsIron: o.needsIron,
     sortedLoad: o.sortedLoad ?? null,
     outletId: o.outletId,
     customerId: o.customerId,

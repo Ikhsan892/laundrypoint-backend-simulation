@@ -6,7 +6,7 @@
 services:
   app:
     # Released image from CI…
-    image: ${IMAGE:-ghcr.io/OWNER/laundrypoint}:${TAG:-latest}
+    image: ${IMAGE:-tiul/laundrypoint}:${TAG:-latest}
     # …or build locally: `docker compose build` (needs ./public — run `make web` first)
     build:
       context: .

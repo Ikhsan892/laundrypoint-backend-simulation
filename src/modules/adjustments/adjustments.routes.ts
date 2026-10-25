@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import bcrypt from 'bcryptjs'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { asyncHandler, ApiError } from '../../utils/http.js'
@@ -8,6 +9,17 @@ import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
 
 export const adjustmentsRouter = Router()
+
+// Verify a PIN against any OWNER employee — the owner approves without logging in.
+async function verifyOwnerPin(pin: string) {
+  const owners = await prisma.employee.findMany({ where: { role: 'OWNER' } })
+  for (const owner of owners) {
+    if (await bcrypt.compare(pin, owner.pinHash)) return owner
+  }
+  throw ApiError.unauthorized('PIN Owner salah')
+}
+
+const pinBody = z.object({ pin: z.string().regex(/^\d{4,6}$/, 'PIN harus 4–6 digit') })
 
 const BASKETS = ['putih', 'hitam', 'satuan'] as const
 
@@ -108,13 +120,13 @@ adjustmentsRouter.post(
   }),
 )
 
-// POST /api/adjustments/:id/approve — apply the reduction to the order's sortedLoad.
+// POST /api/adjustments/:id/approve — owner PIN approves; applies to sortedLoad.
 adjustmentsRouter.post(
   '/:id/approve',
   requireAuth,
-  validate({ body: z.object({ reviewedById: z.string().optional(), reviewedByName: z.string().optional() }).optional() }),
+  validate({ body: pinBody }),
   asyncHandler(async (req, res) => {
-    const body = (req.body ?? {}) as { reviewedById?: string; reviewedByName?: string }
+    const owner = await verifyOwnerPin((req.body as z.infer<typeof pinBody>).pin)
     const adjustment = await prisma.orderAdjustment.findUnique({ where: { id: req.params.id } })
     if (!adjustment) throw ApiError.notFound('Penyesuaian')
     if (adjustment.status !== 'PENDING') throw ApiError.badRequest('Penyesuaian sudah diproses')
@@ -144,8 +156,8 @@ adjustmentsRouter.post(
         where: { id: adjustment.id },
         data: {
           status: 'APPROVED',
-          reviewedById: body.reviewedById,
-          reviewedByName: body.reviewedByName,
+          reviewedById: owner.id,
+          reviewedByName: owner.name,
           reviewedAt: new Date(),
         },
       })
@@ -154,13 +166,13 @@ adjustmentsRouter.post(
   }),
 )
 
-// POST /api/adjustments/:id/reject — decline the request (sortedLoad untouched).
+// POST /api/adjustments/:id/reject — owner PIN declines (sortedLoad untouched).
 adjustmentsRouter.post(
   '/:id/reject',
   requireAuth,
-  validate({ body: z.object({ reviewedById: z.string().optional(), reviewedByName: z.string().optional() }).optional() }),
+  validate({ body: pinBody }),
   asyncHandler(async (req, res) => {
-    const body = (req.body ?? {}) as { reviewedById?: string; reviewedByName?: string }
+    const owner = await verifyOwnerPin((req.body as z.infer<typeof pinBody>).pin)
     const adjustment = await prisma.orderAdjustment.findUnique({ where: { id: req.params.id } })
     if (!adjustment) throw ApiError.notFound('Penyesuaian')
     if (adjustment.status !== 'PENDING') throw ApiError.badRequest('Penyesuaian sudah diproses')
@@ -169,8 +181,8 @@ adjustmentsRouter.post(
       where: { id: adjustment.id },
       data: {
         status: 'REJECTED',
-        reviewedById: body.reviewedById,
-        reviewedByName: body.reviewedByName,
+        reviewedById: owner.id,
+        reviewedByName: owner.name,
         reviewedAt: new Date(),
       },
     })

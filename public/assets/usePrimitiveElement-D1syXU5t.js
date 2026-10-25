@@ -1,0 +1,1 @@
+import{ot as e,v as t}from"./_plugin-vue_export-helper-pO9wv_uk.js";import{i as n}from"./useForwardExpose-CynkLHQQ.js";function r(){let r=e();return{primitiveElement:r,currentElement:t(()=>[`#text`,`#comment`].includes(r.value?.$el.nodeName)?r.value?.$el.nextElementSibling:n(r))}}export{r as t};

@@ -5,7 +5,7 @@ export
 
 # Path to the Vue frontend source (kept comment-free: Make keeps trailing spaces).
 WEB_SRC ?= ../cashier
-IMAGE ?= ghcr.io/OWNER/laundrypoint
+IMAGE ?= tiul/laundrypoint
 TAG ?= latest
 COMPOSE ?= docker compose
 APP_PORT ?= 3000

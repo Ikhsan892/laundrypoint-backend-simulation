@@ -1,0 +1,1 @@
+import{ot as e,q as t}from"./_plugin-vue_export-helper-pO9wv_uk.js";var n=`lp_employee`;function r(){try{let e=localStorage.getItem(n);return e?JSON.parse(e):null}catch{return null}}var i=e(r());t(i,e=>{e?localStorage.setItem(n,JSON.stringify(e)):localStorage.removeItem(n)},{deep:!0});export{i as t};

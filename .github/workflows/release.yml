@@ -1,17 +1,23 @@
 name: release
 
-# Build & push the image ONLY when a tag is pushed to this backend repo
-# (e.g. `git tag v1.0.0 && git push origin v1.0.0`). No branch/PR builds.
+# Build & push the image to Docker Hub (tiul/laundrypoint) ONLY when a semver tag
+# is pushed to this backend repo (e.g. `make release V=v1.0.0`). No branch/PR builds.
 # The frontend is expected to be prebuilt into ./public and committed
 # (run `make web` before tagging).
+#
+# Required repo secret: DOCKERHUB_TOKEN — a Docker Hub access token for user `tiul`
+# (hub.docker.com → Account Settings → Personal access tokens, scope Read & Write).
 on:
   push:
     tags:
-      - 'v*' # change to '*' to match any tag
+      - 'v*.*.*'
 
 permissions:
   contents: read
-  packages: write
+
+env:
+  DOCKERHUB_USERNAME: tiul
+  IMAGE: tiul/laundrypoint
 
 jobs:
   docker:
@@ -27,31 +33,26 @@ jobs:
             exit 1;
           }
 
-      # GHCR image names must be lowercase.
-      - name: Compute image name
-        id: img
-        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # v1.2.3 → 1.2.3, 1.2, v1.2.3, latest. `latest` is skipped for pre-releases
+      # (v1.2.3-rc.1) because metadata-action's flavor defaults to latest=auto.
       - name: Docker metadata (tags & labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ steps.img.outputs.name }}
+          images: ${{ env.IMAGE }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=tag
-            type=raw,value=latest
 
       - name: Build & push
         uses: docker/build-push-action@v6

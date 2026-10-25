@@ -1,0 +1,1 @@
+import{ot as e,v as t}from"./_plugin-vue_export-helper-pO9wv_uk.js";import{i as n}from"./useForwardPropsEmits-CyBh29B7.js";function r(r){let i=n({dir:e(`ltr`)});return t(()=>r?.value||i.dir?.value||`ltr`)}export{r as t};

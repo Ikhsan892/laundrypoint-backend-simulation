@@ -59,6 +59,8 @@ const createSchema = z
     items: z.array(itemSchema).min(1, 'Minimal 1 item'),
     notes: z.string().optional(),
     delivery: z.boolean().default(false),
+    package: z.enum(['reguler', 'sameday']).nullable().optional(), // 1 nota = 1 paket
+    scalePhoto: z.string().optional(), // foto timbangan (base64)
     estimasi: z.string().optional(),
     estimatedAt: z.coerce.date().optional(),
     discountPct: z.number().int().min(0).max(100).optional(),
@@ -155,6 +157,11 @@ ordersRouter.post(
       const customer = await resolveCustomer(tx, body)
       const discountPct = body.discountPct ?? customer.discountPct ?? 0
 
+      // Routing flags — computed from the services in the cart.
+      // Setrika Saja → needsWash false (skip Cuci); Cuci Saja / non-kiloan → needsIron false (skip Setrika).
+      let needsWash = false
+      let needsIron = false
+
       // Build line items — prefer the authoritative Service price when linked.
       const lineItems = await Promise.all(
         body.items.map(async (i) => {
@@ -166,7 +173,18 @@ ordersRouter.post(
           let price = i.price
           if (i.serviceId) {
             const svc = await tx.service.findUnique({ where: { id: i.serviceId } })
-            if (svc) price = svc.price
+            if (svc) {
+              price = svc.price
+              if (svc.needsWash) needsWash = true
+              if (svc.needsIron) needsIron = true
+            } else {
+              needsWash = true
+              needsIron = true
+            }
+          } else {
+            // custom item without a service → assume full flow
+            needsWash = true
+            needsIron = true
           }
           const lineTotal = Math.round(price * i.qty)
           return {
@@ -188,14 +206,23 @@ ordersRouter.post(
       const total = subtotal - discount
       const noNota = await generateNoNota()
 
+      // Where the order enters the pipeline:
+      //   needs wash → ANTRIAN (Cuci); else needs iron → SETRIKA; else straight to PACKING.
+      const status = needsWash ? 'ANTRIAN' : needsIron ? 'SETRIKA' : 'PACKING'
+
       return tx.order.create({
         data: {
           noNota,
           outletId: body.outletId,
           customerId: customer.id,
           cashierId: body.cashierId ?? req.auth!.sub,
+          status,
+          needsWash,
+          needsIron,
           notes: body.notes,
           delivery: body.delivery,
+          package: body.package ? (body.package.toUpperCase() as 'REGULER' | 'SAMEDAY') : null,
+          scalePhoto: body.scalePhoto,
           discountPct,
           subtotal,
           discount,
@@ -252,6 +279,14 @@ ordersRouter.post(
     const order = await prisma.order.findUnique({ where: { id: req.params.id } })
     if (!order) throw ApiError.notFound('Order')
 
+    // Pelanggan baru (belum pernah order sebelumnya) wajib bayar di awal.
+    if (body.timing === 'PICKUP' && order.customerId) {
+      const prior = await prisma.order.count({
+        where: { customerId: order.customerId, id: { not: order.id }, createdAt: { lt: order.createdAt } },
+      })
+      if (prior === 0) throw ApiError.badRequest('Pelanggan baru wajib bayar di awal')
+    }
+
     if (body.timing === 'NOW' && body.method === 'CASH') {
       if (body.cashReceived != null && body.cashReceived < order.total) {
         throw ApiError.badRequest('Uang diterima kurang dari total')
@@ -302,6 +337,43 @@ ordersRouter.post(
     const order = await prisma.order.update({
       where: { id: req.params.id },
       data: { status: 'SIAP_AMBIL', rackLabel: body.rackLabel, packPhoto: body.packPhoto },
+      include: orderInclude,
+    })
+    res.json({ data: serializeOrder(order) })
+  }),
+)
+
+// PATCH /api/orders/:id/rack — re-racking: pindahkan lokasi rak tanpa ubah status.
+ordersRouter.patch(
+  '/:id/rack',
+  requireAuth,
+  validate({ body: z.object({ rackLabel: z.string().min(1).max(40) }) }),
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { rackLabel: (req.body as { rackLabel: string }).rackLabel },
+      include: orderInclude,
+    })
+    res.json({ data: serializeOrder(order) })
+  }),
+)
+
+// POST /api/orders/:id/iron-photo — "Foto Hasil" documentation photo at Setrika.
+ordersRouter.post(
+  '/:id/iron-photo',
+  requireAuth,
+  validate({
+    body: z.object({
+      photo: z
+        .string()
+        .regex(/^data:image\/(png|jpe?g|webp);base64,/, 'Foto harus data URL gambar')
+        .max(8_000_000),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { ironPhoto: (req.body as { photo: string }).photo },
       include: orderInclude,
     })
     res.json({ data: serializeOrder(order) })

@@ -16,6 +16,7 @@ const listQuery = z.object({
 const bodySchema = z.object({
   name: z.string().min(1),
   phone: z.string().min(3),
+  address: z.string().optional(),
   memberLabel: z.string().optional(),
   discountPct: z.number().int().min(0).max(100).default(0),
 })
@@ -38,6 +39,7 @@ customersRouter.get(
       where,
       orderBy: { name: 'asc' },
       take: 50,
+      include: { _count: { select: { orders: true } } },
     })
     res.json({ data: customers.map(serializeCustomer) })
   }),
@@ -67,11 +69,12 @@ customersRouter.post(
       data: {
         name: body.name,
         phone: body.phone,
+        address: body.address,
         memberTier: body.memberLabel,
         discountPct: body.discountPct,
       },
     })
-    res.status(201).json({ data: serializeCustomer(customer) })
+    res.status(201).json({ data: serializeCustomer({ ...customer, _count: { orders: 0 } }) })
   }),
 )
 
@@ -87,6 +90,7 @@ customersRouter.patch(
       data: {
         name: body.name,
         phone: body.phone,
+        ...(body.address !== undefined ? { address: body.address } : {}),
         memberTier: body.memberLabel,
         discountPct: body.discountPct,
       },

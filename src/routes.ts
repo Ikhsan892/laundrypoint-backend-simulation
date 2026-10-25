@@ -8,6 +8,9 @@ import { outletsRouter } from './modules/outlets/outlets.routes.js'
 import { machinesRouter } from './modules/machines/machines.routes.js'
 import { adjustmentsRouter } from './modules/adjustments/adjustments.routes.js'
 import { lostFoundRouter } from './modules/lostFound/lostFound.routes.js'
+import { damageReportsRouter } from './modules/damageReports/damageReports.routes.js'
+import { reportsRouter } from './modules/reports/reports.routes.js'
+import { shiftsRouter } from './modules/shifts/shifts.routes.js'
 
 export const apiRouter = Router()
 
@@ -24,3 +27,6 @@ apiRouter.use('/orders', ordersRouter)
 apiRouter.use('/machines', machinesRouter)
 apiRouter.use('/adjustments', adjustmentsRouter)
 apiRouter.use('/lost-found', lostFoundRouter)
+apiRouter.use('/damage-reports', damageReportsRouter)
+apiRouter.use('/reports', reportsRouter)
+apiRouter.use('/shifts', shiftsRouter)

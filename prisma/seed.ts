@@ -35,84 +35,127 @@ type SvcSeed = {
   unit: 'kg' | 'pcs' | 'm' | 'psg'
   step: number
   category: 'kiloan' | 'non-kiloan' | '3rd-party'
+  package?: 'reguler' | 'sameday' // kosong = 3rd party
+  active?: boolean
   duration?: string
+  minQty?: number
+  needsWash?: boolean // default true; false = "Setrika Saja" (skip Cuci)
+  needsIron?: boolean // default true; false = "Cuci Saja" / non-kiloan (skip Setrika)
 }
 
 const UNIT_MAP = { kg: 'KG', pcs: 'PCS', m: 'METER', psg: 'PASANG' } as const
+const PKG_MAP = { reguler: 'REGULER', sameday: 'SAMEDAY' } as const
 const CAT_MAP = { kiloan: 'KILOAN', 'non-kiloan': 'NON_KILOAN', '3rd-party': 'THIRD_PARTY' } as const
 
-const kiloan: SvcSeed[] = [
-  { slug: 'reguler', name: 'Reguler', subtitle: '2–3 hari · cuci + setrika', emoji: '📋', price: 7000, unit: 'kg', step: 0.1, category: 'kiloan' },
-  { slug: 'sameday', name: 'Sameday', subtitle: 'Selesai hari ini · maks 14:00', emoji: '🔥', price: 14000, unit: 'kg', step: 0.1, category: 'kiloan' },
-  { slug: 'express', name: 'Express 1 Hari', subtitle: 'Selesai 24 jam', emoji: '🚀', price: 10000, unit: 'kg', step: 0.1, category: 'kiloan' },
-  { slug: 'cuci-saja', name: 'Cuci Saja', subtitle: 'Tanpa setrika', emoji: '🫧', price: 5000, unit: 'kg', step: 0.1, category: 'kiloan' },
-  { slug: 'setrika-saja', name: 'Setrika Saja', subtitle: 'Sudah dicuci sendiri', emoji: '🔥', price: 4000, unit: 'kg', step: 0.1, category: 'kiloan' },
-  { slug: 'bayi', name: 'Bayi / Sensitif', subtitle: 'Sleek · tanpa parfum', emoji: '👶', price: 9000, unit: 'kg', step: 0.1, category: 'kiloan' },
+// ── Daftar harga per 1 Januari 2025 (foto harga1–7) ──────────
+// Tiap layanan punya harga Reguler (2 hari) & Sameday (4 jam) → jadi 2 Service
+// (slug `reg-*` / `sd-*`). 3rd party tanpa paket.
+// Baris: [slug, nama, emoji, hargaReguler, hargaSameday, extra] — null = tidak ada di paket itu.
+type Row = [string, string, string, number | null, number | null, Partial<SvcSeed>?]
+
+const KG: Partial<SvcSeed> = { unit: 'kg', step: 0.1, category: 'kiloan', needsIron: true }
+const kiloanRows: Row[] = [
+  ['aj-cuci-setrika', 'Antar Jemput · Cuci Setrika', '🚚', 11000, 18000, { ...KG, minQty: 5 }],
+  ['aj-cuci-lipat', 'Antar Jemput · Cuci Lipat / Setrika', '🚚', 10000, 17000, { ...KG, minQty: 5 }],
+  // ponytail: reguler tercetak 13.300/kg tapi total 3kg tertulis 40.000 — pakai 13.300.
+  ['cuci-setrika-3', 'Cuci Setrika · min 3kg', '🧺', 13300, 20000, { ...KG, minQty: 3 }],
+  ['cuci-setrika-5', 'Cuci Setrika · min 5kg', '🧺', 10000, 16000, { ...KG, minQty: 5 }],
+  ['cuci-lipat-5', 'Cuci Lipat / Setrika · min 5kg', '🫧', 9000, 15000, { ...KG, minQty: 5 }],
 ]
 
-const nonKiloanRaw: [string, string, string, number][] = [
-  ['selimut', 'Selimut', '🛏', 15000],
-  ['selimut-tebal', 'Selimut Tebal', '🛏', 20000],
-  ['selimut-tipis', 'Selimut Tipis', '🛏', 12000],
-  ['bedcover', 'Bedcover', '🛏', 25000],
-  ['duvet', 'Duvet/Sofa', '🛋', 30000],
-  ['cover-sofa', 'Cover Sofa', '🛋', 25000],
-  ['gorden-tipis', 'Gorden Tipis /m', '🪟', 15000],
-  ['gorden-tebal', 'Gorden Tebal /m', '🪟', 25000],
-  ['vitrase', 'Vitrase /m', '🪟', 12000],
-  ['keset', 'Keset', '🧽', 8000],
-  ['keset-handuk', 'Keset Handuk', '🧽', 8000],
-  ['keset-foam', 'Keset Foam', '🧽', 10000],
-  ['sajadah', 'Sajadah', '🕌', 10000],
-  ['mukena', 'Mukena', '🧕', 15000],
-  ['jaket', 'Jaket', '🧥', 15000],
-  ['jaket-sweater', 'Jaket / Sweater', '🧥', 15000],
-  ['coat', 'Coat', '🧥', 30000],
-  ['rompi', 'Rompi', '🦺', 12000],
-  ['tas', 'Tas', '👜', 25000],
-  ['topi', 'Topi', '🧢', 12000],
-  ['dasi', 'Dasi', '👔', 8000],
-  ['selendang', 'Selendang', '🧣', 10000],
-  ['kebaya', 'Kebaya', '👗', 30000],
-  ['songket', 'Songket', '👘', 40000],
-  ['gamis', 'Gamis', '👘', 18000],
-  ['gaun', 'Gaun', '👗', 25000],
-  ['kimono', 'Kimono', '👘', 20000],
-  ['jas', 'Jas', '🤵', 35000],
-  ['longtorso', 'Longtorso', '👔', 25000],
-  ['matras', 'Matras Anti Air', '🛏', 40000],
-  ['handuk', 'Handuk', '🧴', 8000],
-  ['handuk-besar', 'Handuk Besar', '🧴', 12000],
-  ['handuk-kecil', 'Handuk Kecil', '🧴', 5000],
-  ['bantal', 'Bantal / Guling', '🛏', 12000],
-  ['sarung-bantal', 'Sarung Bantal / Sofa', '🛏', 6000],
-  ['bantal-leher', 'Bantal Leher', '🛏', 10000],
-  ['bantal-sofa-kecil', 'Bantal Sofa Kecil', '🛏', 12000],
-  ['bantal-sofa-besar', 'Bantal Sofa Besar', '🛏', 18000],
-  ['boneka-kecil', 'Boneka Kecil', '🧸', 15000],
-  ['boneka-sedang', 'Boneka Sedang', '🧸', 25000],
-  ['boneka-besar', 'Boneka Besar', '🧸', 40000],
-  ['boneka-jumbo', 'Boneka Jumbo', '🧸', 60000],
+// Pakaian satuan punya harga Gantung & Lipat → butuh setrika.
+const IRON: Partial<SvcSeed> = { needsIron: true }
+const NO_KILO = 'jika tidak disertai pakaian kiloan'
+const satuanRows: Row[] = [
+  ['kemeja-gantung', 'Kemeja / Celana / Kaos / Rok / Selendang', '👔', 30000, 35000, { ...IRON, subtitle: 'Gantung' }],
+  ['jas-gantung', 'Jas / Jaket / Sweater / Gaun Mini Midi', '🧥', 35000, 40000, { ...IRON, subtitle: 'Gantung' }],
+  ['gamis-gantung', 'Gamis / Gaun / Kebaya / Songket / Longtorso / Coat', '👗', 45000, 50000, { ...IRON, subtitle: 'Gantung' }],
+  ['kemeja-lipat', 'Kemeja / Celana / Kaos / Rok / Selendang', '👔', 25000, 30000, { ...IRON, subtitle: 'Lipat' }],
+  ['jas-lipat', 'Jas / Jaket / Sweater / Gaun Mini Midi', '🧥', 30000, 35000, { ...IRON, subtitle: 'Lipat' }],
+  ['gamis-lipat', 'Gamis / Gaun / Kebaya / Songket / Longtorso / Coat', '👗', 40000, 45000, { ...IRON, subtitle: 'Lipat' }],
+  ['mukena', '1 Set Mukena', '🧕', 25000, 30000, { subtitle: 'Lipat' }],
+  ['sajadah-tipis', 'Sajadah Tipis', '🕌', 15000, 20000, { subtitle: 'Lipat' }],
+  ['seprai-set', '1 Set Seprai (2 Sarung Bantal + 2 Sarung Guling)', '🛏', 25000, 30000, { subtitle: NO_KILO }],
+  ['handuk-baju', 'Handuk / Baju / Celana / Sarung Bantal Sofa', '🧴', 15000, 20000, { subtitle: NO_KILO }],
+  ['dasi-selendang', 'Dasi / Selendang', '🧣', 10000, 15000, { subtitle: NO_KILO }],
+
+  // "Tidak termasuk dalam kiloan"
+  // TODO(harga): reguler baris 1–6 ketutup pantulan di foto harga4 → 0 = nonaktif, isi manual.
+  ['gaun-kebaya', 'Gaun / Kebaya / Songket / Longtorso', '👗', 0, 45000, { subtitle: 'Lipat' }],
+  ['jas-tebal', 'Jas / Jaket Tebal / Jaket Jeans / Sweater Tebal / Coat', '🧥', 0, 35000, { subtitle: 'Lipat' }],
+  ['sajadah-tebal', 'Sajadah Tebal', '🕌', 0, 30000, { subtitle: 'Lipat' }],
+  ['topi', 'Topi', '🧢', 0, 15000],
+  ['tas-ransel', 'Tas Ransel', '🎒', 0, 60000],
+  ['tas-slempang', 'Tas Slempang', '👜', 0, 40000],
+  ['handuk-selimut', 'Handuk Selimut & Lebar', '🧴', 35000, 40000],
+  ['handuk-kimono', 'Handuk Kimono / Handuk Besar / Tebal', '🧴', 20000, 25000, { subtitle: 'Lipat' }],
+  ['selimut-kecil', 'Selimut Kecil / Tipis', '🛏', 25000, 30000, { subtitle: 'Lipat' }],
+  ['selimut-besar', 'Selimut Besar / Tebal', '🛏', 50000, 55000],
+  ['duvet', 'Duvet Cover / Sofa Cover', '🛋', 25000, 30000],
+  ['matras', 'Matras Kasur Anti Air', '🛏', 25000, 30000],
+  ['seprai-s', '1 Set Seprai (2SB+2SG) & Bedcover Single (S)', '🛏', 35000, 45000, { subtitle: '120 × 200 × 35cm' }],
+  ['seprai-m', '1 Set Seprai (2SB+2SG) & Bedcover Queen (M)', '🛏', 45000, 55000, { subtitle: '160 × 200 × 35cm' }],
+  ['seprai-l', '1 Set Seprai (2SB+2SG) & Bedcover King (L)', '🛏', 55000, 65000, { subtitle: '180 × 200 × 35cm' }],
+  ['seprai-xl', '1 Set Seprai (2SB+2SG) & Bedcover Extra King (XL)', '🛏', 65000, 75000, { subtitle: '200 × 200 × 35cm' }],
+  ['keset-handuk', 'Keset Handuk', '🧽', 15000, 20000],
+  ['keset-besar', 'Keset Besar / Foam Mat / Keset Karpet', '🧽', 25000, 30000],
+  ['boneka-kecil', 'Boneka Kecil', '🧸', 15000, 25000],
+  ['boneka-sedang', 'Boneka Sedang', '🧸', 25000, 35000],
+  ['boneka-besar', 'Boneka Besar', '🧸', 50000, 60000],
+  ['bantal-leher', 'Bantal Leher', '🛏', 20000, 25000],
+  ['bantal-sofa-kecil', 'Bantal Sofa Kecil', '🛋', 25000, 30000],
+  ['bantal-besar', 'Bantal / Guling / Bantal Sofa Besar', '🛏', 50000, null],
+  ['gordyn-kecil', 'Gordyn / Vitrase Kecil / Tipis', '🪟', 25000, 30000],
+  ['gordyn-besar', 'Gordyn / Vitrase Besar / Tebal', '🪟', 30000, 35000, { unit: 'm', step: 0.5, subtitle: 'per meter' }],
+
+  // Dry clean — reguler 3 hari, sameday 4 jam. Tanpa mesin cuci/setrika → langsung Packing.
+  ['dc-jas-gantung', 'Dry Clean Jas / Jaket / Gamis / Kebaya / Songket / Coat', '✨', 70000, 80000, { subtitle: 'Gantung' }],
+  ['dc-kemeja-gantung', 'Dry Clean Kemeja / Celana / Kaos / Rok / Rompi', '✨', 55000, 65000, { subtitle: 'Gantung' }],
+  ['dc-jas-lipat', 'Dry Clean Jas / Jaket / Gamis / Kebaya / Songket / Coat', '✨', 65000, 75000, { subtitle: 'Lipat' }],
+  ['dc-kemeja-lipat', 'Dry Clean Kemeja / Celana / Kaos / Rok / Rompi', '✨', 50000, 60000, { subtitle: 'Lipat' }],
+  ['dc-sarung-bantal-sofa', 'Dry Clean Sarung Bantal Sofa', '✨', 25000, 30000, { subtitle: 'Lipat' }],
+  ['dc-dasi', 'Dry Clean Dasi / Selendang', '✨', 20000, 25000, { subtitle: 'Lipat' }],
 ]
+// Boneka Jumbo & Dry Clean Gaun "harga menyesuaikan" → tidak masuk katalog.
 
-const nonKiloan: SvcSeed[] = nonKiloanRaw.map(([slug, name, emoji, price]) => ({
-  slug,
-  name,
-  emoji,
-  price,
-  subtitle: 'cuci terpisah · 50ml deterjen',
-  unit: 'pcs',
-  step: 1,
-  category: 'non-kiloan',
-}))
+function expand(rows: Row[]): SvcSeed[] {
+  return rows.flatMap(([slug, name, emoji, reg, sd, extra]) => {
+    const dc = slug.startsWith('dc-')
+    const common = {
+      name,
+      emoji,
+      unit: 'pcs',
+      step: 1,
+      category: 'non-kiloan',
+      needsIron: false, // satuan non-kiloan: default cuci saja
+      ...(dc ? { needsWash: false } : {}),
+      ...extra,
+    } as Omit<SvcSeed, 'slug' | 'price'>
+    const out: SvcSeed[] = []
+    if (reg !== null) {
+      out.push({
+        ...common,
+        slug: `reg-${slug}`,
+        price: reg,
+        package: 'reguler',
+        active: reg > 0,
+        ...(dc ? { duration: '3 hari' } : {}),
+      })
+    }
+    if (sd !== null) out.push({ ...common, slug: `sd-${slug}`, price: sd, package: 'sameday' })
+    return out
+  })
+}
 
+// 3rd party: dikerjakan vendor luar → tanpa paket, lewati Cuci & Setrika (langsung Packing).
+const VENDOR = { category: '3rd-party', needsWash: false, needsIron: false, subtitle: 'vendor partner' } as const
 const thirdParty: SvcSeed[] = [
-  { slug: 'karpet', name: 'Karpet /m', subtitle: 'vendor partner', emoji: '🧵', price: 20000, unit: 'm', step: 0.5, category: '3rd-party', duration: '7 hari' },
-  { slug: 'sepatu', name: 'Sepatu /pasang', subtitle: 'vendor partner', emoji: '👟', price: 35000, unit: 'psg', step: 1, category: '3rd-party', duration: '3 hari' },
-  { slug: 'dryclean', name: 'Dry Clean /pcs', subtitle: 'vendor partner', emoji: '✨', price: 20000, unit: 'pcs', step: 1, category: '3rd-party', duration: '3 hari' },
+  { ...VENDOR, slug: 'sepatu', name: 'Sepatu', emoji: '👟', price: 70000, unit: 'psg', step: 1, duration: '3 hari' },
+  { ...VENDOR, slug: 'sepatu-putih', name: 'Sepatu Putih', emoji: '👟', price: 80000, unit: 'psg', step: 1, duration: '3 hari' },
+  { ...VENDOR, slug: 'karpet', name: 'Karpet', emoji: '🧵', price: 15000, unit: 'kg', step: 0.1, minQty: 3, duration: '5 hari' },
 ]
 
-const catalog = [...kiloan, ...nonKiloan, ...thirdParty]
+const catalog = [...expand(kiloanRows), ...expand(satuanRows), ...thirdParty]
 
 async function main() {
   console.log('🌱 Seeding Laundry Point...')
@@ -163,12 +206,36 @@ async function main() {
         price: s.price,
         unit: UNIT_MAP[s.unit],
         step: s.step,
+        minQty: s.minQty ?? null,
+        needsWash: s.needsWash ?? true,
+        needsIron: s.needsIron ?? true,
         category: CAT_MAP[s.category],
+        package: s.package ? PKG_MAP[s.package] : null,
         duration: s.duration,
+        active: s.active ?? true,
       },
-      update: { price: s.price },
+      update: {
+        name: s.name,
+        subtitle: s.subtitle,
+        emoji: s.emoji,
+        unit: UNIT_MAP[s.unit],
+        step: s.step,
+        category: CAT_MAP[s.category],
+        package: s.package ? PKG_MAP[s.package] : null,
+        duration: s.duration,
+        active: s.active ?? true,
+        price: s.price,
+        minQty: s.minQty ?? null,
+        needsWash: s.needsWash ?? true,
+        needsIron: s.needsIron ?? true,
+      },
     })
   }
+  // Layanan lama (sebelum daftar harga per paket) dinonaktifkan, bukan dihapus — masih dirujuk OrderItem.
+  await prisma.service.updateMany({
+    where: { slug: { notIn: catalog.map((s) => s.slug) } },
+    data: { active: false },
+  })
   console.log(`  ✔ Services: ${catalog.length}`)
 
   // Machines: washers A/B/C + dryers 1/2 (matches the Cuci & Kering UI).

@@ -16,6 +16,10 @@ const machineInclude = {
   currentOrder: { include: { customer: true } },
 } satisfies Prisma.MachineInclude
 
+// Bentuk satu basket di Order.sortedLoad (hasil Cek & Pilah).
+type SortBasket = { items: { qty: number }[]; doneAt?: string }
+const basketQty = (basket?: SortBasket) => (basket?.items ?? []).reduce((sum, item) => sum + (item.qty ?? 0), 0)
+
 const listQuery = z.object({
   type: z.enum(['washer', 'dryer']).optional(),
   status: z.enum(['idle', 'running', 'done', 'maintenance']).optional(),
@@ -116,34 +120,47 @@ machinesRouter.delete(
   }),
 )
 
-// POST /api/machines/:id/assign  { orderId, durationMin? }
-// Load an order into the machine, start it, and move the order to CUCI.
+// POST /api/machines/:id/assign  { orderId, basket?, durationMin? }
+// Load an order's basket (putih / hitam / satuan) into the machine, start it, and move the order to CUCI.
+// Tanpa `basket` = seluruh order (perilaku lama).
 machinesRouter.post(
   '/:id/assign',
   requireAuth,
-  validate({ body: z.object({ orderId: z.string().min(1), durationMin: z.number().int().positive().optional() }) }),
+  validate({
+    body: z.object({
+      orderId: z.string().min(1),
+      basket: z.enum(['putih', 'hitam', 'satuan']).optional(),
+      durationMin: z.number().int().positive().optional(),
+    }),
+  }),
   asyncHandler(async (req, res) => {
-    const { orderId, durationMin } = req.body as { orderId: string; durationMin?: number }
+    const { orderId, basket, durationMin } = req.body as {
+      orderId: string
+      basket?: 'putih' | 'hitam' | 'satuan'
+      durationMin?: number
+    }
 
     const machine = await prisma.machine.findUnique({ where: { id: req.params.id } })
     if (!machine) throw ApiError.notFound('Mesin')
-    if (machine.currentOrderId && machine.currentOrderId !== orderId) {
+    const sameLoad = machine.currentOrderId === orderId && machine.currentBasket === (basket ?? null)
+    if (machine.currentOrderId && !sameLoad) {
       throw ApiError.badRequest('Mesin sedang dipakai order lain')
     }
     const order = await prisma.order.findUnique({ where: { id: orderId } })
     if (!order) throw ApiError.notFound('Order')
 
     const updated = await prisma.$transaction(async (tx) => {
-      // Free any machine that previously held this order (unique constraint).
+      // Basket yang sama pindah mesin (cuci → pengering) → bebaskan mesin sebelumnya.
       await tx.machine.updateMany({
-        where: { currentOrderId: orderId, id: { not: machine.id } },
-        data: { currentOrderId: null, status: 'IDLE', lastUsedAt: new Date() },
+        where: { currentOrderId: orderId, currentBasket: basket ?? null, id: { not: machine.id } },
+        data: { currentOrderId: null, currentBasket: null, status: 'IDLE', startedAt: null, lastUsedAt: new Date() },
       })
       await tx.order.update({ where: { id: orderId }, data: { status: 'CUCI' } })
       return tx.machine.update({
         where: { id: machine.id },
         data: {
           currentOrderId: orderId,
+          currentBasket: basket ?? null,
           status: 'RUNNING',
           startedAt: new Date(),
           durationMin: durationMin ?? machine.durationMin ?? (machine.type === 'DRYER' ? 45 : 32),
@@ -162,7 +179,7 @@ machinesRouter.post(
   asyncHandler(async (req, res) => {
     const machine = await prisma.machine.update({
       where: { id: req.params.id },
-      data: { currentOrderId: null, status: 'IDLE', startedAt: null, lastUsedAt: new Date() },
+      data: { currentOrderId: null, currentBasket: null, status: 'IDLE', startedAt: null, lastUsedAt: new Date() },
       include: machineInclude,
     })
     res.json({ data: serializeMachine(machine) })
@@ -200,16 +217,38 @@ machinesRouter.post(
       | 'PACKING'
       | 'SIAP_AMBIL'
       | 'SELESAI'
-    const machine = await prisma.machine.findUnique({ where: { id: req.params.id } })
+    const machine = await prisma.machine.findUnique({
+      where: { id: req.params.id },
+      include: { currentOrder: { select: { needsIron: true, sortedLoad: true } } },
+    })
     if (!machine) throw ApiError.notFound('Mesin')
 
+    // Cuci-only orders (needsIron=false) skip Setrika → straight to Packing.
+    const next =
+      toStatus === 'SETRIKA' && machine.currentOrder && !machine.currentOrder.needsIron
+        ? 'PACKING'
+        : toStatus
+
     const updated = await prisma.$transaction(async (tx) => {
-      if (machine.currentOrderId) {
-        await tx.order.update({ where: { id: machine.currentOrderId }, data: { status: toStatus } })
+      const orderId = machine.currentOrderId
+      if (orderId) {
+        const basket = machine.currentBasket as 'putih' | 'hitam' | 'satuan' | null
+        let advance: boolean
+        if (basket) {
+          // Tandai basket ini selesai cuci-kering; order naik tahap kalau semua basket berisi sudah selesai.
+          const load = (machine.currentOrder?.sortedLoad ?? {}) as Record<string, SortBasket | undefined>
+          load[basket] = { ...(load[basket] ?? { items: [] }), doneAt: new Date().toISOString() }
+          await tx.order.update({ where: { id: orderId }, data: { sortedLoad: load as Prisma.InputJsonValue } })
+          advance = (['putih', 'hitam', 'satuan'] as const).every((key) => basketQty(load[key]) === 0 || !!load[key]?.doneAt)
+        } else {
+          // Order lama (tanpa basket): naik kalau tidak ada mesin lain yang memegangnya.
+          advance = (await tx.machine.count({ where: { currentOrderId: orderId, id: { not: machine.id } } })) === 0
+        }
+        if (advance) await tx.order.update({ where: { id: orderId }, data: { status: next } })
       }
       return tx.machine.update({
         where: { id: machine.id },
-        data: { currentOrderId: null, status: 'IDLE', startedAt: null, lastUsedAt: new Date() },
+        data: { currentOrderId: null, currentBasket: null, status: 'IDLE', startedAt: null, lastUsedAt: new Date() },
         include: machineInclude,
       })
     })
