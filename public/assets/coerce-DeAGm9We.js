@@ -1,0 +1,1 @@
+import{s as e,t}from"./schemas-BfirSuoZ.js";function n(n){return e(t,n)}export{n as t};

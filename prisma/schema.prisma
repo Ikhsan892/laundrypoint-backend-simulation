@@ -202,6 +202,10 @@ model Order {
   adjustments   OrderAdjustment[]
   lostFound     LostFound[]
   damageReports DamageReport[]
+  washLog       WashLog?
+  ironCheck     IronCheck?
+  swapsOut      ItemSwap[]    @relation("SwapFrom")
+  swapsIn       ItemSwap[]    @relation("SwapTo")
   sortedLoad    Json? // hasil "Cek & Pilah Cucian" (basket putih/hitam/satuan)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -218,6 +222,7 @@ model OrderAdjustment {
   orderId         String
   status          AdjustmentStatus @default(PENDING)
   reason          String?
+  photo           String?          @db.Text // foto kekurangan (opsional)
   changes         Json // [{ basket, itemId, name, emoji, fromQty, toQty }]
   requestedById   String?
   requestedByName String?
@@ -292,12 +297,96 @@ model Machine {
   startedAt      DateTime?
   durationMin    Int? // planned cycle length in minutes
   lastUsedAt     DateTime?
+  maintenance    MaintenanceSchedule[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   @@index([type])
   @@index([status])
   @@index([currentOrderId])
+}
+
+// Satu baris lembar "Divisi Cuci — Washer & Dryer" per nota. Baris muncul di laporan setelah `finishedAt` terisi.
+model WashLog {
+  id           String    @id @default(cuid())
+  order        Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId      String    @unique
+  washers      String[] // nama mesin cuci yang dipakai (mesinnya sudah dilepas saat laporan dibuat)
+  tower        String? // tower / cluster; kosong = alamat pelanggan
+  bedDuvet     Int       @default(0) // bedcover: Bed S / Duvet
+  sb           Int       @default(0) // bedcover: SB
+  sg           Int       @default(0) // bedcover: SG
+  notes        String?
+  operatorName String?
+  finishedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([finishedAt])
+}
+
+// Pencatatan: sabun & softener = sisa stok saat `recordedAt`; gas = pemakaian; mesin uap & air = catatan kondisi (qty 0).
+model SupplyLog {
+  id           String   @id @default(cuid())
+  kind         String // "sabun" | "softener" | "gas" | "uap" | "air"
+  qty          Float
+  note         String?
+  employeeName String?
+  recordedAt   DateTime @default(now()) // jam & hari pencatatan, bisa diedit
+  createdAt    DateTime @default(now())
+
+  @@index([kind, recordedAt])
+}
+
+// Jadwal maintenance berkala: jatuh tempo = lastDoneAt + intervalDays.
+model MaintenanceSchedule {
+  id             String   @id @default(cuid())
+  machine        Machine? @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  machineId      String? // kosong = umum (bukan mesin tertentu)
+  task           String
+  intervalDays   Int
+  lastDoneAt     DateTime @default(now())
+  lastDoneByName String?
+  createdAt      DateTime @default(now())
+
+  @@index([machineId])
+}
+
+// Hasil hitungan per nota saat selesai setrika, disalin supaya laporan tetap sama walau jumlahnya disesuaikan Owner.
+model IronCheck {
+  id           String   @id @default(cuid())
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId      String   @unique
+  baskets      Json // [{ key, expected, counted }]
+  operatorName String?
+  checkedAt    DateTime @default(now())
+}
+
+// Barang fisik yang dipindah antar nota ("Mencari Jarum di Tumpukan Jerami"). Jumlah tercatat tidak berubah.
+model ItemSwap {
+  id          String   @id @default(cuid())
+  fromOrder   Order    @relation("SwapFrom", fields: [fromOrderId], references: [id], onDelete: Cascade)
+  fromOrderId String
+  toOrder     Order    @relation("SwapTo", fields: [toOrderId], references: [id], onDelete: Cascade)
+  toOrderId   String
+  basket      String // "putih" | "hitam" | "satuan"
+  qty         Int
+  byName      String?
+  createdAt   DateTime @default(now())
+
+  @@index([fromOrderId])
+  @@index([toOrderId])
+}
+
+// Riwayat pengerjaan maintenance; teks disalin supaya laporan lama tetap utuh walau jadwal/mesin dihapus.
+model MaintenanceLog {
+  id          String   @id @default(cuid())
+  task        String
+  machineName String?
+  doneByName  String?
+  doneAt      DateTime @default(now())
+
+  @@index([doneAt])
 }
 
 model OrderItem {

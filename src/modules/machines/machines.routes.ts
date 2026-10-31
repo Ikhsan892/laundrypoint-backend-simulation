@@ -6,6 +6,7 @@ import { asyncHandler, ApiError } from '../../utils/http.js'
 import { serializeMachine } from '../../utils/serializers.js'
 import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
+import { closeWashLog, employeeName, recordWashers } from '../washLogs/washLogs.routes.js'
 
 export const machinesRouter = Router()
 
@@ -295,6 +296,8 @@ machinesRouter.post(
         data: { ...FREE, lastUsedAt: new Date() },
       })
       await tx.order.update({ where: { id: body.orderId }, data: { status: 'CUCI' } })
+      const washers = targets.filter((m) => m.type === 'WASHER').map((m) => m.name)
+      if (washers.length > 0) await recordWashers(tx, body.orderId, washers)
       return Promise.all(
         targets.map((m) =>
           tx.machine.update({
@@ -340,6 +343,7 @@ machinesRouter.post(
     if (!order) throw ApiError.notFound('Order')
     const toStatus = body.toStatus ?? 'SETRIKA'
     const next = toStatus === 'SETRIKA' && !order.needsIron ? 'PACKING' : toStatus
+    const operator = await employeeName(req.auth?.sub)
 
     const advanced = await prisma.$transaction(async (tx) => {
       await tx.machine.updateMany({ where: loadWhere(body), data: { ...FREE, lastUsedAt: new Date() } })
@@ -352,7 +356,10 @@ machinesRouter.post(
       } else {
         advance = (await tx.machine.count({ where: { currentOrderId: order.id } })) === 0
       }
-      if (advance) await tx.order.update({ where: { id: order.id }, data: { status: next } })
+      if (advance) {
+        await tx.order.update({ where: { id: order.id }, data: { status: next } })
+        await closeWashLog(tx, order.id, operator)
+      }
       return advance
     })
     res.json({ data: { advanced, status: advanced ? next : order.status } })

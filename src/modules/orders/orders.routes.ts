@@ -8,6 +8,7 @@ import { fromUiUnit, fromUiCategory } from '../../utils/serializers.js'
 import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
 import { generateNoNota } from '../../utils/nota.js'
+import { closeWashLog, employeeName } from '../washLogs/washLogs.routes.js'
 
 export const ordersRouter = Router()
 
@@ -74,6 +75,8 @@ const listQuery = z.object({
   paymentStatus: z.enum(['BELUM_BAYAR', 'LUNAS']).optional(),
   customerId: z.string().optional(),
   q: z.string().optional(), // nota search
+  from: z.string().datetime().optional(), // rentang tanggal masuk nota
+  to: z.string().datetime().optional(),
 })
 
 const paymentSchema = z.object({
@@ -115,12 +118,13 @@ ordersRouter.get(
   '/',
   validate({ query: listQuery }),
   asyncHandler(async (req, res) => {
-    const { status, paymentStatus, customerId, q } = req.query as z.infer<typeof listQuery>
+    const { status, paymentStatus, customerId, q, from, to } = req.query as z.infer<typeof listQuery>
     const where: Prisma.OrderWhereInput = {
       ...(status ? { status } : {}),
       ...(paymentStatus ? { paymentStatus } : {}),
       ...(customerId ? { customerId } : {}),
       ...(q ? { noNota: { contains: q, mode: 'insensitive' } } : {}),
+      ...(from && to ? { createdAt: { gte: new Date(from), lt: new Date(to) } } : {}),
     }
     const orders = await prisma.order.findMany({
       where,
@@ -245,10 +249,18 @@ ordersRouter.patch(
   requireAuth,
   validate({ body: z.object({ status: z.enum(ORDER_STATUSES) }) }),
   asyncHandler(async (req, res) => {
-    const order = await prisma.order.update({
-      where: { id: req.params.id },
-      data: { status: req.body.status },
-      include: orderInclude,
+    const prev = await prisma.order.findUnique({ where: { id: req.params.id } })
+    if (!prev) throw ApiError.notFound('Order')
+    // Keluar dari station Cuci & Kering tanpa lewat mesin terakhir (mis. tombol "Oper") → tetap masuk laporan cuci.
+    const leavesWash = prev.needsWash && ['ANTRIAN', 'CUCI'].includes(prev.status) && ['SETRIKA', 'PACKING'].includes(req.body.status)
+    const operator = leavesWash ? await employeeName(req.auth?.sub) : null
+    const order = await prisma.$transaction(async (tx) => {
+      if (leavesWash) await closeWashLog(tx, prev.id, operator)
+      return tx.order.update({
+        where: { id: req.params.id },
+        data: { status: req.body.status },
+        include: orderInclude,
+      })
     })
     res.json({ data: serializeOrder(order) })
   }),

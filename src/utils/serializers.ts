@@ -138,6 +138,7 @@ export function serializeAdjustment(a: OrderAdjustment) {
     orderId: a.orderId,
     status: a.status.toLowerCase(), // 'pending' | 'approved' | 'rejected'
     reason: a.reason,
+    photo: a.photo,
     changes: a.changes,
     requestedById: a.requestedById,
     requestedByName: a.requestedByName,

@@ -1,0 +1,1 @@
+import{t as e,u as t}from"./utils-nYu8qtZh.js";var n=t();function r({children:t,className:r}){return(0,n.jsx)(`kbd`,{className:e(`pointer-events-none inline-flex h-5 items-center rounded border bg-muted px-1.5 font-sans text-[0.65rem] font-medium text-muted-foreground`,r),children:t})}export{r as t};

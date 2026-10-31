@@ -87,6 +87,7 @@ adjustmentsRouter.post(
       orderId: z.string().min(1),
       changes: z.array(changeSchema).min(1, 'Tidak ada perubahan'),
       reason: z.string().optional(),
+      photo: z.string().regex(/^data:image\/(png|jpe?g|webp);base64,/, 'Foto harus data URL gambar').max(8_000_000, 'Foto terlalu besar').optional(),
       requestedById: z.string().optional(),
       requestedByName: z.string().optional(),
     }),
@@ -96,6 +97,7 @@ adjustmentsRouter.post(
       orderId: string
       changes: z.infer<typeof changeSchema>[]
       reason?: string
+      photo?: string
       requestedById?: string
       requestedByName?: string
     }
@@ -112,6 +114,7 @@ adjustmentsRouter.post(
         orderId: order.id,
         changes: body.changes as unknown as Prisma.InputJsonValue,
         reason: body.reason,
+        photo: body.photo,
         requestedById: body.requestedById,
         requestedByName: body.requestedByName,
       },

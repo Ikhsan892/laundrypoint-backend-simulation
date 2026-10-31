@@ -1,1 +1,0 @@
-import{s as e,t}from"./schemas-D2g3OFGs.js";function n(n){return e(t,n)}export{n as t};
