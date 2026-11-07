@@ -8,7 +8,8 @@ import { fromUiUnit, fromUiCategory } from '../../utils/serializers.js'
 import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
 import { generateNoNota } from '../../utils/nota.js'
-import { closeWashLog, employeeName } from '../washLogs/washLogs.routes.js'
+import { closeWashLog } from '../washLogs/washLogs.routes.js'
+import { actorName } from '../../utils/actor.js'
 
 export const ordersRouter = Router()
 
@@ -86,6 +87,35 @@ const paymentSchema = z.object({
 })
 
 // ── Helpers ───────────────────────────────────────────────────
+
+/** Yang sudah dibayar. Payment `PICKUP` hanya penanda "bayar saat ambil", belum ada uangnya. */
+export const paidAmount = (payments: { timing: string; amount: number }[]) =>
+  payments.filter((p) => p.timing === 'NOW').reduce((sum, p) => sum + p.amount, 0)
+
+/** Baris item dari input kasir — harga resmi diambil dari Service kalau terhubung. */
+async function buildLineItems(tx: Prisma.TransactionClient, items: z.infer<typeof itemSchema>[]) {
+  return Promise.all(
+    items.map(async (i) => {
+      const unit = fromUiUnit(i.unit)
+      const category = fromUiCategory(i.category)
+      if (!unit) throw ApiError.badRequest(`Unit tidak valid: ${i.unit}`)
+      if (!category) throw ApiError.badRequest(`Kategori tidak valid: ${i.category}`)
+      const svc = i.serviceId ? await tx.service.findUnique({ where: { id: i.serviceId } }) : null
+      const price = svc?.price ?? i.price
+      return {
+        serviceId: i.serviceId ?? null,
+        name: i.name,
+        subtitle: i.subtitle ?? null,
+        price,
+        unit: unit as ServiceUnit,
+        category: category as ServiceCategory,
+        duration: i.duration ?? null,
+        qty: i.qty,
+        lineTotal: Math.round(price * i.qty),
+      }
+    }),
+  )
+}
 
 /** Resolve or create the customer for an order. */
 async function resolveCustomer(
@@ -253,7 +283,7 @@ ordersRouter.patch(
     if (!prev) throw ApiError.notFound('Order')
     // Keluar dari station Cuci & Kering tanpa lewat mesin terakhir (mis. tombol "Oper") → tetap masuk laporan cuci.
     const leavesWash = prev.needsWash && ['ANTRIAN', 'CUCI'].includes(prev.status) && ['SETRIKA', 'PACKING'].includes(req.body.status)
-    const operator = leavesWash ? await employeeName(req.auth?.sub) : null
+    const operator = leavesWash ? await actorName(req) : null
     const order = await prisma.$transaction(async (tx) => {
       if (leavesWash) await closeWashLog(tx, prev.id, operator)
       return tx.order.update({
@@ -263,6 +293,61 @@ ordersRouter.patch(
       })
     })
     res.json({ data: serializeOrder(order) })
+  }),
+)
+
+// PATCH /api/orders/:id/intake  { putih, hitam, satuan } — hitungan kasir saat terima cucian.
+// Jadi titik awal hitungan yang dicek ulang di Cuci, Setrika, dan Packing.
+ordersRouter.patch(
+  '/:id/intake',
+  requireAuth,
+  validate({
+    body: z.object({
+      putih: z.number().int().min(0).max(999),
+      hitam: z.number().int().min(0).max(999),
+      satuan: z.number().int().min(0).max(999),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const intake = { ...(req.body as object), byName: await actorName(req), at: new Date().toISOString() }
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { intakeCount: intake as Prisma.InputJsonValue },
+      include: orderInclude,
+    })
+    res.json({ data: serializeOrder(order) })
+  }),
+)
+
+// PUT /api/orders/:id/items  { items[] } — kasir mengubah isi nota yang masih berjalan; total dihitung ulang.
+// Kalau total naik melebihi yang sudah dibayar, nota jadi belum lunas (sisanya ditagih saat serah terima).
+ordersRouter.put(
+  '/:id/items',
+  requireAuth,
+  validate({ body: z.object({ items: z.array(itemSchema).min(1, 'Minimal 1 item') }) }),
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.findUnique({ where: { id: req.params.id }, include: { payments: true } })
+    if (!order) throw ApiError.notFound('Order')
+    if (order.status === 'SELESAI' || order.status === 'BATAL') throw ApiError.badRequest('Nota sudah selesai / batal')
+    const updated = await prisma.$transaction(async (tx) => {
+      const lineItems = await buildLineItems(tx, (req.body as { items: z.infer<typeof itemSchema>[] }).items)
+      const subtotal = lineItems.reduce((sum, item) => sum + item.lineTotal, 0)
+      const discount = Math.round((subtotal * order.discountPct) / 100)
+      const total = subtotal - discount
+      await tx.orderItem.deleteMany({ where: { orderId: order.id } })
+      return tx.order.update({
+        where: { id: order.id },
+        data: {
+          subtotal,
+          discount,
+          total,
+          paymentStatus: paidAmount(order.payments) >= total ? 'LUNAS' : 'BELUM_BAYAR',
+          items: { create: lineItems },
+        },
+        include: orderInclude,
+      })
+    })
+    res.json({ data: serializeOrder(updated) })
   }),
 )
 
@@ -427,33 +512,37 @@ ordersRouter.post(
   }),
   asyncHandler(async (req, res) => {
     const body = req.body as { method?: string; cashReceived?: number }
-    const order = await prisma.order.findUnique({ where: { id: req.params.id } })
+    const order = await prisma.order.findUnique({ where: { id: req.params.id }, include: { payments: true } })
     if (!order) throw ApiError.notFound('Order')
 
-    if (order.paymentStatus !== 'LUNAS' && !body.method) {
+    // Sisa tagihan — bisa sebagian kalau kasir menambah item setelah nota dibayar.
+    const due = Math.max(0, order.total - paidAmount(order.payments))
+    if (due > 0 && !body.method) {
       throw ApiError.badRequest('Order belum lunas — pilih metode pembayaran')
     }
-    if (body.method === 'CASH' && body.cashReceived != null && body.cashReceived < order.total) {
-      throw ApiError.badRequest('Uang diterima kurang dari total')
+    if (body.method === 'CASH' && body.cashReceived != null && body.cashReceived < due) {
+      throw ApiError.badRequest('Uang diterima kurang dari tagihan')
     }
     const change =
-      body.method === 'CASH' && body.cashReceived != null
-        ? Math.max(0, body.cashReceived - order.total)
-        : null
+      body.method === 'CASH' && body.cashReceived != null ? Math.max(0, body.cashReceived - due) : null
 
     const updated = await prisma.$transaction(async (tx) => {
-      if (order.paymentStatus !== 'LUNAS' && body.method) {
+      if (due > 0 && body.method) {
         await tx.payment.create({
           data: {
             orderId: order.id,
             method: body.method as 'CASH' | 'QRIS_BTN' | 'QRIS_GOPAY' | 'TRANSFER',
             timing: 'NOW',
-            amount: order.total,
+            amount: due,
             cashReceived: body.cashReceived,
             change,
           },
         })
       }
+      // Barang customer, kerusakan & barang branded ikut diserahkan / diinformasikan ke pelanggan.
+      await tx.lostFound.updateMany({ where: { orderId: order.id, status: 'open' }, data: { status: 'claimed' } })
+      await tx.damageReport.updateMany({ where: { orderId: order.id, status: 'open' }, data: { status: 'resolved' } })
+      await tx.brandedItem.updateMany({ where: { orderId: order.id, status: 'open' }, data: { status: 'resolved' } })
       return tx.order.update({
         where: { id: order.id },
         data: { status: 'SELESAI', paymentStatus: 'LUNAS' },

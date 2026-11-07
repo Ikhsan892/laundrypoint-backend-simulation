@@ -125,6 +125,7 @@ model Employee {
   outlet       Outlet?        @relation(fields: [outletId], references: [id])
   outletId     String?
   orders       Order[]        @relation("CashierOrders")
+  attendances  Attendance[]
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
@@ -203,10 +204,12 @@ model Order {
   lostFound     LostFound[]
   damageReports DamageReport[]
   washLog       WashLog?
-  ironCheck     IronCheck?
+  checks        StationCheck[]
+  brandedItems  BrandedItem[]
   swapsOut      ItemSwap[]    @relation("SwapFrom")
   swapsIn       ItemSwap[]    @relation("SwapTo")
   sortedLoad    Json? // hasil "Cek & Pilah Cucian" (basket putih/hitam/satuan)
+  intakeCount   Json? // hitungan kasir saat terima: { putih, hitam, satuan, byName, at }
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
@@ -297,7 +300,7 @@ model Machine {
   startedAt      DateTime?
   durationMin    Int? // planned cycle length in minutes
   lastUsedAt     DateTime?
-  maintenance    MaintenanceSchedule[]
+  maintenance    MaintenanceRecord[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -325,10 +328,10 @@ model WashLog {
   @@index([finishedAt])
 }
 
-// Pencatatan: sabun & softener = sisa stok saat `recordedAt`; gas = pemakaian; mesin uap & air = catatan kondisi (qty 0).
+// Catatan kondisi mesin setrika (mesin uap / mesin air). Bahan habis pakai ada di InventoryItem.
 model SupplyLog {
   id           String   @id @default(cuid())
-  kind         String // "sabun" | "softener" | "gas" | "uap" | "air"
+  kind         String // "uap" | "air"
   qty          Float
   note         String?
   employeeName String?
@@ -338,29 +341,7 @@ model SupplyLog {
   @@index([kind, recordedAt])
 }
 
-// Jadwal maintenance berkala: jatuh tempo = lastDoneAt + intervalDays.
-model MaintenanceSchedule {
-  id             String   @id @default(cuid())
-  machine        Machine? @relation(fields: [machineId], references: [id], onDelete: Cascade)
-  machineId      String? // kosong = umum (bukan mesin tertentu)
-  task           String
-  intervalDays   Int
-  lastDoneAt     DateTime @default(now())
-  lastDoneByName String?
-  createdAt      DateTime @default(now())
 
-  @@index([machineId])
-}
-
-// Hasil hitungan per nota saat selesai setrika, disalin supaya laporan tetap sama walau jumlahnya disesuaikan Owner.
-model IronCheck {
-  id           String   @id @default(cuid())
-  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  orderId      String   @unique
-  baskets      Json // [{ key, expected, counted }]
-  operatorName String?
-  checkedAt    DateTime @default(now())
-}
 
 // Barang fisik yang dipindah antar nota ("Mencari Jarum di Tumpukan Jerami"). Jumlah tercatat tidak berubah.
 model ItemSwap {
@@ -378,16 +359,6 @@ model ItemSwap {
   @@index([toOrderId])
 }
 
-// Riwayat pengerjaan maintenance; teks disalin supaya laporan lama tetap utuh walau jadwal/mesin dihapus.
-model MaintenanceLog {
-  id          String   @id @default(cuid())
-  task        String
-  machineName String?
-  doneByName  String?
-  doneAt      DateTime @default(now())
-
-  @@index([doneAt])
-}
 
 model OrderItem {
   id        String          @id @default(cuid())
@@ -419,6 +390,101 @@ model Payment {
   cashReceived Int?
   change       Int?
   paidAt       DateTime      @default(now())
+
+  @@index([orderId])
+}
+
+// ── Inventory per station ─────────────────────────────────────
+// Stok = total "masuk" − total "pakai"; tidak disimpan supaya tidak pernah selisih dari riwayatnya.
+model InventoryItem {
+  id          String          @id @default(cuid())
+  station     String // "cuci" | "setrika" | "packing" | "kasir"
+  name        String
+  unit        String // "pouch", "tabung", "pcs", …
+  machineType MachineType? // diisi = pemakaian wajib pilih mesin jenis ini (mis. gas → DRYER)
+  active      Boolean         @default(true)
+  moves       InventoryMove[]
+  createdAt   DateTime        @default(now())
+
+  @@unique([station, name])
+}
+
+model InventoryMove {
+  id           String        @id @default(cuid())
+  item         InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId       String
+  type         String // "masuk" | "pakai"
+  qty          Float
+  note         String?
+  machineId    String?
+  machineName  String?
+  employeeName String?
+  recordedAt   DateTime      @default(now()) // jam & hari kejadian, bisa diedit
+  createdAt    DateTime      @default(now())
+
+  @@index([itemId, recordedAt])
+}
+
+// ── Maintenance ───────────────────────────────────────────────
+// RUSAK / MAINTENANCE: per mesin, dibuka lalu ditandai selesai (mesin "perbaikan" selama terbuka).
+// CEROBONG: cerobong asap pengering, hanya mencatat hasil (langsung selesai).
+model MaintenanceRecord {
+  id           String    @id @default(cuid())
+  kind         String // "RUSAK" | "MAINTENANCE" | "CEROBONG"
+  machine      Machine?  @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  machineId    String?
+  machineName  String? // disalin: laporan tetap utuh walau mesin dihapus
+  note         String?
+  status       String    @default("open") // "open" | "done"
+  doneNote     String?
+  openedByName String?
+  doneByName   String?
+  openedAt     DateTime  @default(now())
+  doneAt       DateTime?
+
+  @@index([status])
+  @@index([openedAt])
+}
+
+// ── Absen per station ─────────────────────────────────────────
+model Attendance {
+  id         String    @id @default(cuid())
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId String
+  station    String // StationKey frontend: "cashier" | "dry-and-clean" | "ironing" | "packing" | "pengembalian"
+  checkInAt  DateTime  @default(now())
+  checkOutAt DateTime?
+
+  @@index([station, checkInAt])
+}
+
+// Hasil hitung ulang per nota di tiap station (setrika, packing), disalin supaya laporan tetap sama
+// walau jumlahnya disesuaikan Owner.
+model StationCheck {
+  id           String   @id @default(cuid())
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId      String
+  station      String // "setrika" | "packing"
+  baskets      Json // [{ key, expected, counted }]
+  operatorName String?
+  checkedAt    DateTime @default(now())
+
+  @@unique([orderId, station])
+  @@index([station, checkedAt])
+}
+
+// Barang branded / baru milik pelanggan — dicatat kasir, ikut terlihat sampai serah terima.
+model BrandedItem {
+  id             String   @id @default(cuid())
+  order          Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderId        String?
+  description    String
+  photo          String?  @db.Text
+  station        String?
+  status         String   @default("open") // open | resolved (sudah diserahkan)
+  reportedById   String?
+  reportedByName String?
+  createdAt      DateTime @default(now())
 
   @@index([orderId])
 }

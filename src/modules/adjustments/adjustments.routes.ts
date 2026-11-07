@@ -7,6 +7,7 @@ import { asyncHandler, ApiError } from '../../utils/http.js'
 import { serializeAdjustment } from '../../utils/serializers.js'
 import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
+import { actorName } from '../../utils/actor.js'
 
 export const adjustmentsRouter = Router()
 
@@ -116,7 +117,7 @@ adjustmentsRouter.post(
         reason: body.reason,
         photo: body.photo,
         requestedById: body.requestedById,
-        requestedByName: body.requestedByName,
+        requestedByName: body.requestedByName ?? (await actorName(req)),
       },
     })
     res.status(201).json({ data: serializeAdjustment(adjustment) })

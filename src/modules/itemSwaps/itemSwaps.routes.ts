@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js'
 import { asyncHandler, ApiError } from '../../utils/http.js'
 import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
-import { employeeName } from '../washLogs/washLogs.routes.js'
+import { actorName } from '../../utils/actor.js'
 
 export const itemSwapsRouter = Router()
 
@@ -47,7 +47,7 @@ itemSwapsRouter.post(
     if (orders.length !== 2) throw ApiError.notFound('Order')
     // Barang di nota yang sudah diserahkan / batal tidak bisa dipindah lagi.
     if (orders.some((o) => o.status === 'SELESAI' || o.status === 'BATAL')) throw ApiError.badRequest('Nota sudah selesai atau batal')
-    const swap = await prisma.itemSwap.create({ data: { ...body, byName: await employeeName(req.auth?.sub) } })
+    const swap = await prisma.itemSwap.create({ data: { ...body, byName: await actorName(req) } })
     res.status(201).json({ data: swap })
   }),
 )

@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma.js'
 import { asyncHandler, ApiError } from '../../utils/http.js'
 import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
+import { actorName } from '../../utils/actor.js'
 
 export const damageReportsRouter = Router()
 
@@ -78,7 +79,7 @@ damageReportsRouter.post(
         photo: body.photo,
         station: body.station,
         reportedById: body.reportedById,
-        reportedByName: body.reportedByName,
+        reportedByName: body.reportedByName ?? (await actorName(req)),
       },
     })
     res.status(201).json({ data: serialize(item) })

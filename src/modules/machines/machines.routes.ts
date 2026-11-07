@@ -6,7 +6,8 @@ import { asyncHandler, ApiError } from '../../utils/http.js'
 import { serializeMachine } from '../../utils/serializers.js'
 import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
-import { closeWashLog, employeeName, recordWashers } from '../washLogs/washLogs.routes.js'
+import { closeWashLog, recordWashers } from '../washLogs/washLogs.routes.js'
+import { actorName } from '../../utils/actor.js'
 
 export const machinesRouter = Router()
 
@@ -343,7 +344,7 @@ machinesRouter.post(
     if (!order) throw ApiError.notFound('Order')
     const toStatus = body.toStatus ?? 'SETRIKA'
     const next = toStatus === 'SETRIKA' && !order.needsIron ? 'PACKING' : toStatus
-    const operator = await employeeName(req.auth?.sub)
+    const operator = await actorName(req)
 
     const advanced = await prisma.$transaction(async (tx) => {
       await tx.machine.updateMany({ where: loadWhere(body), data: { ...FREE, lastUsedAt: new Date() } })

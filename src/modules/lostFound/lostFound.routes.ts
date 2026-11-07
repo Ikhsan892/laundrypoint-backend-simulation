@@ -6,6 +6,7 @@ import { asyncHandler, ApiError } from '../../utils/http.js'
 import { serializeLostFound } from '../../utils/serializers.js'
 import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
+import { actorName } from '../../utils/actor.js'
 
 export const lostFoundRouter = Router()
 
@@ -62,11 +63,11 @@ lostFoundRouter.post(
     const item = await prisma.lostFound.create({
       data: {
         orderId: body.orderId,
-        description: body.description?.trim() || 'Barang kehilangan',
+        description: body.description?.trim() || 'Barang customer',
         photo: body.photo,
         station: body.station,
         reportedById: body.reportedById,
-        reportedByName: body.reportedByName,
+        reportedByName: body.reportedByName ?? (await actorName(req)),
       },
     })
     res.status(201).json({ data: serializeLostFound(item) })

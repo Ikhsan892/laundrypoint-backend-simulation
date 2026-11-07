@@ -8,13 +8,6 @@ import { requireAuth } from '../../middleware/auth.js'
 
 export const washLogsRouter = Router()
 
-/** Nama karyawan dari token, untuk kolom petugas. */
-export async function employeeName(employeeId?: string) {
-  if (!employeeId) return null
-  const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { name: true } })
-  return employee?.name ?? null
-}
-
 /** Catat mesin cuci yang dipakai nota ini — mesinnya nanti dilepas, jadi namanya disimpan di sini. */
 export async function recordWashers(tx: Prisma.TransactionClient, orderId: string, names: string[]) {
   const log = await tx.washLog.findUnique({ where: { orderId }, select: { washers: true } })
@@ -30,13 +23,18 @@ export async function closeWashLog(tx: Prisma.TransactionClient, orderId: string
   await tx.washLog.upsert({ where: { orderId }, create: { orderId, ...data }, update: data })
 }
 
-const include = { order: { include: { customer: true } } } satisfies Prisma.WashLogInclude
+const photoSelect = { select: { id: true, photo: true, description: true } }
+const include = {
+  order: { include: { customer: true, lostFound: photoSelect, damageReports: photoSelect } },
+} satisfies Prisma.WashLogInclude
 type WashLogRow = Prisma.WashLogGetPayload<{ include: typeof include }>
 type Basket = { items?: { qty?: number }[] }
+type Intake = { putih?: number; hitam?: number; satuan?: number }
 
 function serializeWashLog(log: WashLogRow) {
   const load = (log.order.sortedLoad ?? {}) as Record<string, Basket | undefined>
   const qty = (key: string) => (load[key]?.items ?? []).reduce((sum, item) => sum + (item.qty ?? 0), 0)
+  const intake = log.order.intakeCount as Intake | null
   return {
     id: log.id,
     orderId: log.orderId,
@@ -53,6 +51,10 @@ function serializeWashLog(log: WashLogRow) {
     notes: log.notes,
     operatorName: log.operatorName,
     finishedAt: log.finishedAt,
+    // Hitungan kasir saat terima (null = tidak dihitung) — dibandingkan dengan total pilah.
+    kasirPcs: intake ? (intake.putih ?? 0) + (intake.hitam ?? 0) + (intake.satuan ?? 0) : null,
+    customerItems: log.order.lostFound,
+    damages: log.order.damageReports,
   }
 }
 

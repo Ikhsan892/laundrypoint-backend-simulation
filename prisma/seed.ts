@@ -255,6 +255,27 @@ async function main() {
   }
   console.log(`  ✔ Machines: ${machines.length}`)
 
+  // Inventory awal per station (bisa ditambah dari aplikasi). Gas: pemakaian wajib pilih pengering.
+  const inventory: { station: string; name: string; unit: string; machineType?: 'DRYER' }[] = [
+    { station: 'cuci', name: 'Sabun', unit: 'pouch' },
+    { station: 'cuci', name: 'Softener', unit: 'pouch' },
+    { station: 'cuci', name: 'Gas', unit: 'tabung', machineType: 'DRYER' },
+    { station: 'packing', name: 'Plastik', unit: 'pcs' },
+    { station: 'packing', name: 'Solasi', unit: 'roll' },
+    { station: 'packing', name: 'Parfum', unit: 'botol' },
+    { station: 'packing', name: 'Sticker', unit: 'lembar' },
+    { station: 'packing', name: 'Gantungan', unit: 'pcs' },
+    { station: 'kasir', name: 'Gantungan', unit: 'pcs' },
+  ]
+  for (const item of inventory) {
+    await prisma.inventoryItem.upsert({
+      where: { station_name: { station: item.station, name: item.name } },
+      create: item,
+      update: {},
+    })
+  }
+  console.log(`  ✔ Inventory: ${inventory.length}`)
+
   // A sample member customer (from the cashier's default customer).
   await prisma.customer.upsert({
     where: { phone: '0812-3456-7890' },

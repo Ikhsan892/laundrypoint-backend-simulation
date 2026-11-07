@@ -22,18 +22,21 @@ export function signToken(payload: AuthPayload): string {
   return jwt.sign(payload, env.jwtSecret, { expiresIn: env.jwtExpiresIn as jwt.SignOptions['expiresIn'] })
 }
 
+// `reason: 'session'` = sesi login habis / tidak ada (beda dengan 401 PIN salah) → frontend minta login ulang.
+const sessionError = (message: string) => new ApiError(401, message, { reason: 'session' })
+
 /** Require a valid Bearer token; attaches req.auth. */
 export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization
   if (!header?.startsWith('Bearer ')) {
-    return next(ApiError.unauthorized('Token tidak ada'))
+    return next(sessionError('Sesi login tidak ada — silakan login ulang'))
   }
   const token = header.slice('Bearer '.length)
   try {
     req.auth = jwt.verify(token, env.jwtSecret) as AuthPayload
     next()
   } catch {
-    next(ApiError.unauthorized('Token tidak valid atau kedaluwarsa'))
+    next(sessionError('Sesi login sudah habis — silakan login ulang'))
   }
 }
 

@@ -4,11 +4,11 @@ import { prisma } from '../../lib/prisma.js'
 import { asyncHandler } from '../../utils/http.js'
 import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
-import { employeeName } from '../washLogs/washLogs.routes.js'
+import { actorName } from '../../utils/actor.js'
 
 export const supplyLogsRouter = Router()
 
-const kind = z.enum(['sabun', 'softener', 'gas', 'uap', 'air'])
+const kind = z.enum(['uap', 'air']) // catatan kondisi mesin setrika
 const entry = z.object({
   qty: z.number().min(0).max(100_000), // 0 = sisa habis
   note: z.string().trim().max(200).optional(),
@@ -46,7 +46,7 @@ supplyLogsRouter.post(
   validate({ body: entry.extend({ kind }) }),
   asyncHandler(async (req, res) => {
     const log = await prisma.supplyLog.create({
-      data: { ...req.body, employeeName: await employeeName(req.auth?.sub) },
+      data: { ...req.body, employeeName: await actorName(req) },
     })
     res.status(201).json({ data: log })
   }),

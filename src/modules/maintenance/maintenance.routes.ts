@@ -1,84 +1,113 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import type { MaintenanceRecord } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
-import { asyncHandler } from '../../utils/http.js'
+import { asyncHandler, ApiError } from '../../utils/http.js'
 import { validate } from '../../middleware/validate.js'
 import { requireAuth } from '../../middleware/auth.js'
-import { employeeName } from '../washLogs/washLogs.routes.js'
+import { actorName } from '../../utils/actor.js'
 
 export const maintenanceRouter = Router()
 
-const include = { machine: { select: { name: true } } }
+const serialize = (r: MaintenanceRecord) => ({
+  id: r.id,
+  kind: r.kind, // 'RUSAK' | 'MAINTENANCE' | 'CEROBONG'
+  machineId: r.machineId,
+  machineName: r.machineName,
+  note: r.note,
+  status: r.status, // 'open' | 'done'
+  doneNote: r.doneNote,
+  openedByName: r.openedByName,
+  doneByName: r.doneByName,
+  openedAt: r.openedAt,
+  doneAt: r.doneAt,
+})
 
-// GET /api/maintenance
+// GET /api/maintenance?from=&to= — untuk laporan: yang dibuka / selesai di rentang itu.
+// Tanpa rentang: semua yang masih terbuka + 40 riwayat terakhir.
 maintenanceRouter.get(
   '/',
-  asyncHandler(async (_req, res) => {
-    const schedules = await prisma.maintenanceSchedule.findMany({ include, orderBy: { createdAt: 'asc' } })
-    res.json({ data: schedules })
-  }),
-)
-
-const logQuery = z.object({ from: z.string().datetime(), to: z.string().datetime() })
-
-// GET /api/maintenance/logs?from=&to= — riwayat pengerjaan untuk laporan.
-maintenanceRouter.get(
-  '/logs',
-  validate({ query: logQuery }),
+  validate({ query: z.object({ from: z.string().datetime().optional(), to: z.string().datetime().optional() }) }),
   asyncHandler(async (req, res) => {
-    const { from, to } = req.query as z.infer<typeof logQuery>
-    const logs = await prisma.maintenanceLog.findMany({
-      where: { doneAt: { gte: new Date(from), lt: new Date(to) } },
-      orderBy: { doneAt: 'asc' },
-    })
-    res.json({ data: logs })
+    const { from, to } = req.query as { from?: string; to?: string }
+    if (from && to) {
+      const range = { gte: new Date(from), lt: new Date(to) }
+      const records = await prisma.maintenanceRecord.findMany({
+        where: { OR: [{ openedAt: range }, { doneAt: range }] },
+        orderBy: { openedAt: 'asc' },
+      })
+      return res.json({ data: records.map(serialize) })
+    }
+    const [open, recent] = await Promise.all([
+      prisma.maintenanceRecord.findMany({ where: { status: 'open' }, orderBy: { openedAt: 'desc' } }),
+      prisma.maintenanceRecord.findMany({ where: { status: 'done' }, orderBy: { doneAt: 'desc' }, take: 40 }),
+    ])
+    res.json({ data: [...open, ...recent].map(serialize) })
   }),
 )
 
-// POST /api/maintenance  { task, intervalDays, machineId? } — hitungan mulai dari hari ini.
+// POST /api/maintenance  { kind, machineId?, note? }
+// RUSAK / MAINTENANCE: mesin wajib, langsung ditandai perbaikan sampai selesai.
+// CEROBONG: catat hasil maintenance cerobong asap (langsung selesai, catatan wajib).
 maintenanceRouter.post(
   '/',
   requireAuth,
   validate({
     body: z.object({
-      task: z.string().trim().min(1, 'Isi nama pekerjaan').max(120),
-      intervalDays: z.number().int().positive().max(3650),
+      kind: z.enum(['RUSAK', 'MAINTENANCE', 'CEROBONG']),
       machineId: z.string().min(1).optional(),
+      note: z.string().trim().max(300).optional(),
     }),
   }),
   asyncHandler(async (req, res) => {
-    const schedule = await prisma.maintenanceSchedule.create({ data: req.body, include })
-    res.status(201).json({ data: schedule })
+    const body = req.body as { kind: 'RUSAK' | 'MAINTENANCE' | 'CEROBONG'; machineId?: string; note?: string }
+    const actor = await actorName(req)
+
+    if (body.kind === 'CEROBONG') {
+      if (!body.note) throw ApiError.badRequest('Tulis hasil maintenance cerobong')
+      const record = await prisma.maintenanceRecord.create({
+        data: { kind: 'CEROBONG', note: body.note, status: 'done', openedByName: actor, doneByName: actor, doneAt: new Date() },
+      })
+      return res.status(201).json({ data: serialize(record) })
+    }
+
+    if (!body.machineId) throw ApiError.badRequest('Pilih mesinnya')
+    const machine = await prisma.machine.findUnique({ where: { id: body.machineId } })
+    if (!machine) throw ApiError.notFound('Mesin')
+    if (machine.currentOrderId) throw ApiError.badRequest(`${machine.name} masih berisi cucian — pindahkan dulu`)
+    const open = await prisma.maintenanceRecord.findFirst({ where: { machineId: machine.id, status: 'open' } })
+    if (open) throw ApiError.badRequest(`${machine.name} sudah tercatat ${open.kind === 'RUSAK' ? 'rusak' : 'maintenance'}`)
+
+    const record = await prisma.$transaction(async (tx) => {
+      await tx.machine.update({ where: { id: machine.id }, data: { status: 'MAINTENANCE' } })
+      return tx.maintenanceRecord.create({
+        data: { kind: body.kind, machineId: machine.id, machineName: machine.name, note: body.note || null, openedByName: actor },
+      })
+    })
+    res.status(201).json({ data: serialize(record) })
   }),
 )
 
-// POST /api/maintenance/:id/done — sudah dikerjakan, siklus mulai lagi dari sekarang.
+// POST /api/maintenance/:id/done  { note? } — selesai; mesin kembali bisa dipakai.
 maintenanceRouter.post(
   '/:id/done',
   requireAuth,
+  validate({ body: z.object({ note: z.string().trim().max(300).optional() }) }),
   asyncHandler(async (req, res) => {
-    const doneByName = await employeeName(req.auth?.sub)
-    const schedule = await prisma.$transaction(async (tx) => {
-      const updated = await tx.maintenanceSchedule.update({
-        where: { id: req.params.id },
-        data: { lastDoneAt: new Date(), lastDoneByName: doneByName },
-        include,
+    const record = await prisma.maintenanceRecord.findUnique({ where: { id: req.params.id } })
+    if (!record) throw ApiError.notFound('Catatan maintenance')
+    if (record.status === 'done') throw ApiError.badRequest('Sudah selesai')
+    const doneByName = await actorName(req)
+    const updated = await prisma.$transaction(async (tx) => {
+      const done = await tx.maintenanceRecord.update({
+        where: { id: record.id },
+        data: { status: 'done', doneAt: new Date(), doneByName, doneNote: (req.body as { note?: string }).note || null },
       })
-      await tx.maintenanceLog.create({
-        data: { task: updated.task, machineName: updated.machine?.name, doneByName, doneAt: updated.lastDoneAt },
-      })
-      return updated
+      if (record.machineId) {
+        await tx.machine.updateMany({ where: { id: record.machineId, status: 'MAINTENANCE' }, data: { status: 'IDLE' } })
+      }
+      return done
     })
-    res.json({ data: schedule })
-  }),
-)
-
-// DELETE /api/maintenance/:id
-maintenanceRouter.delete(
-  '/:id',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    await prisma.maintenanceSchedule.delete({ where: { id: req.params.id } })
-    res.status(204).end()
+    res.json({ data: serialize(updated) })
   }),
 )

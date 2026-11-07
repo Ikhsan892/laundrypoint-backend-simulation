@@ -15,7 +15,10 @@ import { washLogsRouter } from './modules/washLogs/washLogs.routes.js'
 import { supplyLogsRouter } from './modules/supplyLogs/supplyLogs.routes.js'
 import { maintenanceRouter } from './modules/maintenance/maintenance.routes.js'
 import { itemSwapsRouter } from './modules/itemSwaps/itemSwaps.routes.js'
-import { ironChecksRouter } from './modules/ironChecks/ironChecks.routes.js'
+import { stationChecksRouter } from './modules/stationChecks/stationChecks.routes.js'
+import { inventoryRouter } from './modules/inventory/inventory.routes.js'
+import { attendanceRouter } from './modules/attendance/attendance.routes.js'
+import { brandedItemsRouter } from './modules/brandedItems/brandedItems.routes.js'
 
 export const apiRouter = Router()
 
@@ -39,4 +42,7 @@ apiRouter.use('/wash-logs', washLogsRouter)
 apiRouter.use('/supply-logs', supplyLogsRouter)
 apiRouter.use('/maintenance', maintenanceRouter)
 apiRouter.use('/item-swaps', itemSwapsRouter)
-apiRouter.use('/iron-checks', ironChecksRouter)
+apiRouter.use('/station-checks', stationChecksRouter)
+apiRouter.use('/inventory', inventoryRouter)
+apiRouter.use('/attendance', attendanceRouter)
+apiRouter.use('/branded-items', brandedItemsRouter)
