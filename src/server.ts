@@ -1,10 +1,13 @@
 import { createApp } from './app.js'
 import { env } from './config/env.js'
 import { prisma } from './lib/prisma.js'
+import { ensureDefaultInventory } from './modules/inventory/defaults.js'
 
 async function main() {
   // Fail fast if the database is unreachable.
   await prisma.$connect()
+  // Tombol Sabun/Softener/Gas di Cuci & Kering berasal dari barang ini — jangan bergantung pada seed.
+  await ensureDefaultInventory(prisma)
   const app = createApp()
 
   const server = app.listen(env.port, () => {
