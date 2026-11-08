@@ -25,6 +25,7 @@ const createSchema = z.object({
   orderId: z.string().optional(),
   description: z.string().optional(),
   photo: photoSchema.optional(),
+  photos: z.array(photoSchema).max(10, 'Maksimal 10 foto').optional(),
   station: z.string().optional(),
   reportedById: z.string().optional(),
   reportedByName: z.string().optional(),
@@ -64,7 +65,8 @@ lostFoundRouter.post(
       data: {
         orderId: body.orderId,
         description: body.description?.trim() || 'Barang customer',
-        photo: body.photo,
+        photo: body.photos?.[0] ?? body.photo,
+        morePhotos: body.photos?.slice(1) ?? [],
         station: body.station,
         reportedById: body.reportedById,
         reportedByName: body.reportedByName ?? (await actorName(req)),

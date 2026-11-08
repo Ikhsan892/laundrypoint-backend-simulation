@@ -155,6 +155,7 @@ export function serializeLostFound(lf: LostFound) {
     orderId: lf.orderId,
     description: lf.description,
     photo: lf.photo,
+    photos: [lf.photo, ...lf.morePhotos].filter((x): x is string => !!x),
     station: lf.station,
     status: lf.status,
     reportedById: lf.reportedById,

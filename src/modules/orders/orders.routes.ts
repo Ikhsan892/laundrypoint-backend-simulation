@@ -520,6 +520,84 @@ ordersRouter.post(
   }),
 )
 
+const resultPhoto = z.string().regex(/^data:image\/(png|jpe?g|webp);base64,/, 'Foto harus data URL gambar').max(8_000_000)
+/** Kolom foto lama per station — diisi foto pertama supaya penanda "sudah difoto" tetap jalan. */
+const LEGACY_PHOTO = { 'Cuci & Kering': 'washPhoto', Setrika: 'ironPhoto', Packing: 'packPhoto' } as const
+
+// POST /api/orders/:id/photos  { station, photos[] } — foto hasil (bisa banyak) di station tsb.
+ordersRouter.post(
+  '/:id/photos',
+  requireAuth,
+  validate({
+    body: z.object({
+      station: z.enum(['Cuci & Kering', 'Setrika', 'Packing']),
+      photos: z.array(resultPhoto).min(1).max(10, 'Maksimal 10 foto'),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const { station, photos } = req.body as { station: keyof typeof LEGACY_PHOTO; photos: string[] }
+    const order = await prisma.order.findUnique({ where: { id: req.params.id }, select: { id: true, washPhoto: true, ironPhoto: true, packPhoto: true } })
+    if (!order) throw ApiError.notFound('Order')
+    const byName = await actorName(req)
+    const field = LEGACY_PHOTO[station]
+    await prisma.$transaction([
+      prisma.orderPhoto.createMany({ data: photos.map((photo) => ({ orderId: order.id, station, photo, byName })) }),
+      ...(order[field] ? [] : [prisma.order.update({ where: { id: order.id }, data: { [field]: photos[0] } })]),
+    ])
+    const updated = await prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: orderInclude })
+    res.status(201).json({ data: serializeOrder(updated) })
+  }),
+)
+
+// DELETE /api/orders/:id/photos/:photoId — hapus satu foto hasil.
+ordersRouter.delete(
+  '/:id/photos/:photoId',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    await prisma.orderPhoto.deleteMany({ where: { id: req.params.photoId, orderId: req.params.id } })
+    res.status(204).end()
+  }),
+)
+
+// GET /api/orders/:id/gallery — semua foto nota di satu tempat: timbangan, hasil tiap station,
+// barang customer, kerusakan, branded, kekurangan. Urut dari station awal.
+ordersRouter.get(
+  '/:id/gallery',
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: { photos: { orderBy: { createdAt: 'asc' } }, lostFound: true, damageReports: true, brandedItems: true, adjustments: true },
+    })
+    if (!order) throw ApiError.notFound('Order')
+    type Entry = { id: string; group: string; station: string | null; photo: string; caption: string | null; byName: string | null; at: Date }
+    const entries: Entry[] = []
+    if (order.scalePhoto) entries.push({ id: 'scale', group: 'Hasil', station: 'Kasir', photo: order.scalePhoto, caption: 'Foto timbangan', byName: null, at: order.createdAt })
+    for (const [station, field] of Object.entries(LEGACY_PHOTO)) {
+      const rows = order.photos.filter((p) => p.station === station)
+      const legacy = order[field]
+      // Foto lama (sebelum bisa banyak) hanya ditampilkan kalau belum ada foto baru di station itu.
+      if (!rows.length && legacy) entries.push({ id: `${field}`, group: 'Hasil', station, photo: legacy, caption: null, byName: null, at: order.updatedAt })
+      for (const p of rows) entries.push({ id: p.id, group: 'Hasil', station, photo: p.photo, caption: null, byName: p.byName, at: p.createdAt })
+    }
+    const reports = [
+      ['Barang Customer', order.lostFound],
+      ['Kerusakan', order.damageReports],
+      ['Branded', order.brandedItems],
+    ] as const
+    for (const [group, items] of reports) {
+      for (const r of items) {
+        ;[r.photo, ...r.morePhotos].forEach((photo, i) => {
+          if (photo) entries.push({ id: `${r.id}-${i}`, group, station: r.station, photo, caption: r.description, byName: r.reportedByName, at: r.createdAt })
+        })
+      }
+    }
+    for (const a of order.adjustments) {
+      if (a.photo) entries.push({ id: a.id, group: 'Kekurangan', station: null, photo: a.photo, caption: a.reason, byName: a.requestedByName, at: a.createdAt })
+    }
+    res.json({ data: entries })
+  }),
+)
+
 // POST /api/orders/:id/handover — hand to customer → SELESAI, settling an open
 // bill first if a payment method is provided.
 ordersRouter.post(

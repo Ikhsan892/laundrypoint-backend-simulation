@@ -171,48 +171,49 @@ model Service {
 }
 
 model Order {
-  id            String        @id @default(cuid())
-  noNota        String        @unique // e.g. "LP-2405-1234"
-  outlet        Outlet?       @relation(fields: [outletId], references: [id])
+  id            String            @id @default(cuid())
+  noNota        String            @unique // e.g. "LP-2405-1234"
+  outlet        Outlet?           @relation(fields: [outletId], references: [id])
   outletId      String?
-  customer      Customer?     @relation(fields: [customerId], references: [id])
+  customer      Customer?         @relation(fields: [customerId], references: [id])
   customerId    String?
-  cashier       Employee?     @relation("CashierOrders", fields: [cashierId], references: [id])
+  cashier       Employee?         @relation("CashierOrders", fields: [cashierId], references: [id])
   cashierId     String?
-  status        OrderStatus   @default(ANTRIAN)
-  paymentStatus PaymentStatus @default(BELUM_BAYAR)
+  status        OrderStatus       @default(ANTRIAN)
+  paymentStatus PaymentStatus     @default(BELUM_BAYAR)
   notes         String?
-  delivery      Boolean       @default(false)
+  delivery      Boolean           @default(false)
   package       ServicePackage? // 1 nota = 1 paket; null = 3rd party
-  scalePhoto    String?       @db.Text // foto timbangan (base64), dikirim bareng nota WA
-  discountPct   Int           @default(0)
-  subtotal      Int           @default(0)
-  discount      Int           @default(0)
-  total         Int           @default(0)
+  scalePhoto    String?           @db.Text // foto timbangan (base64), dikirim bareng nota WA
+  discountPct   Int               @default(0)
+  subtotal      Int               @default(0)
+  discount      Int               @default(0)
+  total         Int               @default(0)
   estimasi      String? // human label, e.g. "Sen, 27 Mei"
   estimatedAt   DateTime?
   rackLabel     String? // shelf/rack location once packed (e.g. "R-12")
-  packPhoto     String?  @db.Text // photo of the folded/packed laundry (base64)
-  ironPhoto     String?  @db.Text // "Foto Hasil" — documentation photo at Setrika
-  washPhoto     String?  @db.Text // foto cucian setelah Cek & Pilah (station Cuci & Kering)
-  needsWash     Boolean  @default(true) // routing: false → skip Cuci
-  needsIron     Boolean  @default(true) // routing: false → skip Setrika
+  packPhoto     String?           @db.Text // photo of the folded/packed laundry (base64)
+  ironPhoto     String?           @db.Text // "Foto Hasil" — documentation photo at Setrika
+  washPhoto     String?           @db.Text // foto cucian setelah Cek & Pilah (station Cuci & Kering)
+  needsWash     Boolean           @default(true) // routing: false → skip Cuci
+  needsIron     Boolean           @default(true) // routing: false → skip Setrika
   items         OrderItem[]
   payments      Payment[]
-  machines      Machine[]     @relation("MachineOrder") // 1 mesin per basket (putih / hitam)
+  machines      Machine[]         @relation("MachineOrder") // 1 mesin per basket (putih / hitam)
   adjustments   OrderAdjustment[]
   lostFound     LostFound[]
   damageReports DamageReport[]
   washLog       WashLog?
   checks        StationCheck[]
   brandedItems  BrandedItem[]
-  swapsOut      ItemSwap[]    @relation("SwapFrom")
-  swapsIn       ItemSwap[]    @relation("SwapTo")
+  photos        OrderPhoto[]
+  swapsOut      ItemSwap[]        @relation("SwapFrom")
+  swapsIn       ItemSwap[]        @relation("SwapTo")
   sortedLoad    Json? // hasil "Cek & Pilah Cucian" (basket putih/hitam/satuan)
   intakeCount   Json? // hitungan kasir saat terima: { putih, hitam, satuan, byName, at }
   workers       Json? // yang mengerjakan per station: { "Setrika": [{ id, name }] }
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   @@index([status])
   @@index([customerId])
@@ -260,6 +261,7 @@ model LostFound {
   orderId        String?
   description    String
   photo          String?  @db.Text // data URL (base64), compressed client-side
+  morePhotos     String[] @default([]) // foto ke-2 dst (foto pertama di `photo`)
   station        String? // e.g. "Setrika"
   status         String   @default("open") // open | claimed
   reportedById   String?
@@ -277,6 +279,7 @@ model DamageReport {
   orderId        String?
   description    String
   photo          String?  @db.Text
+  morePhotos     String[] @default([]) // foto ke-2 dst (foto pertama di `photo`)
   station        String? // e.g. "Cuci & Kering", "Setrika"
   status         String   @default("open") // open | resolved
   reportedById   String?
@@ -288,22 +291,22 @@ model DamageReport {
 }
 
 model Machine {
-  id             String        @id @default(cuid())
+  id             String              @id @default(cuid())
   name           String // "Mesin Cuci A", "Pengering 1"
   type           MachineType
-  status         MachineStatus @default(IDLE)
+  status         MachineStatus       @default(IDLE)
   capacityKg     Float?
-  outlet         Outlet?       @relation(fields: [outletId], references: [id])
+  outlet         Outlet?             @relation(fields: [outletId], references: [id])
   outletId       String?
-  currentOrder   Order?        @relation("MachineOrder", fields: [currentOrderId], references: [id])
+  currentOrder   Order?              @relation("MachineOrder", fields: [currentOrderId], references: [id])
   currentOrderId String?
   currentBasket  String? // "putih" | "hitam" | "satuan" — basket order yang sedang di mesin ini
   startedAt      DateTime?
   durationMin    Int? // planned cycle length in minutes
   lastUsedAt     DateTime?
   maintenance    MaintenanceRecord[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([type])
   @@index([status])
@@ -342,8 +345,6 @@ model SupplyLog {
   @@index([kind, recordedAt])
 }
 
-
-
 // Barang fisik yang dipindah antar nota ("Mencari Jarum di Tumpukan Jerami"). Jumlah tercatat tidak berubah.
 model ItemSwap {
   id          String   @id @default(cuid())
@@ -359,7 +360,6 @@ model ItemSwap {
   @@index([fromOrderId])
   @@index([toOrderId])
 }
-
 
 model OrderItem {
   id        String          @id @default(cuid())
@@ -481,11 +481,25 @@ model BrandedItem {
   orderId        String?
   description    String
   photo          String?  @db.Text
+  morePhotos     String[] @default([]) // foto ke-2 dst (foto pertama di `photo`)
   station        String?
   status         String   @default("open") // open | resolved (sudah diserahkan)
   reportedById   String?
   reportedByName String?
   createdAt      DateTime @default(now())
+
+  @@index([orderId])
+}
+
+// Foto hasil per station (Cuci & Kering, Setrika, Packing) — bisa banyak per nota, tampil di galeri nota.
+model OrderPhoto {
+  id        String   @id @default(cuid())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId   String
+  station   String // "Cuci & Kering" | "Setrika" | "Packing"
+  photo     String   @db.Text
+  byName    String?
+  createdAt DateTime @default(now())
 
   @@index([orderId])
 }
