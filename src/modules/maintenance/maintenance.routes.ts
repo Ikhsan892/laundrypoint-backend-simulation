@@ -11,9 +11,9 @@ export const maintenanceRouter = Router()
 
 const serialize = (r: MaintenanceRecord) => ({
   id: r.id,
-  kind: r.kind, // 'RUSAK' | 'MAINTENANCE' | 'CEROBONG'
+  kind: r.kind, // 'RUSAK' | 'MAINTENANCE' | 'CEROBONG' (lama)
   machineId: r.machineId,
-  machineName: r.machineName,
+  machineName: r.machineName ?? (r.kind === 'CEROBONG' ? 'Cerobong Asap' : null), // catatan lama cerobong tanpa nama
   note: r.note,
   status: r.status, // 'open' | 'done'
   doneNote: r.doneNote,
@@ -46,9 +46,14 @@ maintenanceRouter.get(
   }),
 )
 
-// POST /api/maintenance  { kind, machineId?, note? }
-// RUSAK / MAINTENANCE: mesin wajib, langsung ditandai perbaikan sampai selesai.
-// CEROBONG: catat hasil maintenance cerobong asap (langsung selesai, catatan wajib).
+/** Aset non-mesin di katalog maintenance (tidak ada di tabel Machine). */
+const ASSETS = ['Cerobong Asap', 'Mesin Air'] as const
+
+// POST /api/maintenance  { kind, machineId? | asset?, note?, done? }
+// Katalog: mesin cuci / pengering (machineId) atau aset (Cerobong Asap, Mesin Air).
+// Rusak / Maintenance terbuka sampai ditandai selesai (mesin "perbaikan" selama terbuka);
+// `done: true` = cukup catat hasilnya (langsung selesai, catatan wajib).
+// `kind: 'CEROBONG'` = format lama, tetap diterima (= asset Cerobong Asap, langsung selesai).
 maintenanceRouter.post(
   '/',
   requireAuth,
@@ -56,24 +61,39 @@ maintenanceRouter.post(
     body: z.object({
       kind: z.enum(['RUSAK', 'MAINTENANCE', 'CEROBONG']),
       machineId: z.string().min(1).optional(),
+      asset: z.enum(ASSETS).optional(),
       note: z.string().trim().max(300).optional(),
+      done: z.boolean().optional(),
     }),
   }),
   asyncHandler(async (req, res) => {
-    const body = req.body as { kind: 'RUSAK' | 'MAINTENANCE' | 'CEROBONG'; machineId?: string; note?: string }
+    const body = req.body as { kind: 'RUSAK' | 'MAINTENANCE' | 'CEROBONG'; machineId?: string; asset?: string; note?: string; done?: boolean }
+    if (body.kind === 'CEROBONG') Object.assign(body, { kind: 'MAINTENANCE', asset: 'Cerobong Asap', machineId: undefined, done: true })
+    const kind = body.kind as 'RUSAK' | 'MAINTENANCE'
     const actor = await actorName(req)
+    const finished = body.done ? { status: 'done', doneByName: actor, doneAt: new Date() } : {}
+    if (body.done && !body.note) throw ApiError.badRequest('Tulis hasil maintenance-nya')
 
-    if (body.kind === 'CEROBONG') {
-      if (!body.note) throw ApiError.badRequest('Tulis hasil maintenance cerobong')
+    if (!body.machineId) {
+      if (!body.asset) throw ApiError.badRequest('Pilih mesin / barangnya')
+      if (!body.done) {
+        const open = await prisma.maintenanceRecord.findFirst({ where: { machineId: null, machineName: body.asset, status: 'open' } })
+        if (open) throw ApiError.badRequest(`${body.asset} sudah tercatat ${open.kind === 'RUSAK' ? 'rusak' : 'maintenance'}`)
+      }
       const record = await prisma.maintenanceRecord.create({
-        data: { kind: 'CEROBONG', note: body.note, status: 'done', openedByName: actor, doneByName: actor, doneAt: new Date() },
+        data: { kind, machineName: body.asset, note: body.note || null, openedByName: actor, ...finished },
       })
       return res.status(201).json({ data: serialize(record) })
     }
 
-    if (!body.machineId) throw ApiError.badRequest('Pilih mesinnya')
     const machine = await prisma.machine.findUnique({ where: { id: body.machineId } })
     if (!machine) throw ApiError.notFound('Mesin')
+    if (body.done) {
+      const record = await prisma.maintenanceRecord.create({
+        data: { kind, machineId: machine.id, machineName: machine.name, note: body.note || null, openedByName: actor, ...finished },
+      })
+      return res.status(201).json({ data: serialize(record) })
+    }
     if (machine.currentOrderId) throw ApiError.badRequest(`${machine.name} masih berisi cucian — pindahkan dulu`)
     const open = await prisma.maintenanceRecord.findFirst({ where: { machineId: machine.id, status: 'open' } })
     if (open) throw ApiError.badRequest(`${machine.name} sudah tercatat ${open.kind === 'RUSAK' ? 'rusak' : 'maintenance'}`)
@@ -81,7 +101,7 @@ maintenanceRouter.post(
     const record = await prisma.$transaction(async (tx) => {
       await tx.machine.update({ where: { id: machine.id }, data: { status: 'MAINTENANCE' } })
       return tx.maintenanceRecord.create({
-        data: { kind: body.kind, machineId: machine.id, machineName: machine.name, note: body.note || null, openedByName: actor },
+        data: { kind, machineId: machine.id, machineName: machine.name, note: body.note || null, openedByName: actor },
       })
     })
     res.status(201).json({ data: serialize(record) })

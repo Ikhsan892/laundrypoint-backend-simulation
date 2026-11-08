@@ -231,6 +231,7 @@ export function serializeOrder(o: OrderWithRelations) {
     // Yang sudah dibayar (payment PICKUP belum ada uangnya).
     paidAmount: (o.payments ?? []).filter((p) => p.timing === 'NOW').reduce((sum, p) => sum + p.amount, 0),
     intakeCount: o.intakeCount ?? null,
+    workers: o.workers ?? {},
     adjustments: o.adjustments?.map(serializeAdjustment) ?? [],
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,

@@ -210,6 +210,7 @@ model Order {
   swapsIn       ItemSwap[]    @relation("SwapTo")
   sortedLoad    Json? // hasil "Cek & Pilah Cucian" (basket putih/hitam/satuan)
   intakeCount   Json? // hitungan kasir saat terima: { putih, hitam, satuan, byName, at }
+  workers       Json? // yang mengerjakan per station: { "Setrika": [{ id, name }] }
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 

@@ -1,1 +1,0 @@
-import{d as e,m as t}from"./utils-nYu8qtZh.js";import{N as n}from"./index-DQ2jvhfA.js";var r=t(e(),1);function i(){let e=(0,r.useContext)(n);if(e===null)throw Error(`useTransaction must be used inside <TransactionProvider>`);return e}export{i as t};

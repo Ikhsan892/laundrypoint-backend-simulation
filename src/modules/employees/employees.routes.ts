@@ -132,6 +132,10 @@ employeesRouter.delete(
   '/:id',
   requireAuth,
   asyncHandler(async (req, res) => {
+    if (req.params.id === req.auth?.sub) throw ApiError.badRequest('Tidak bisa menghapus akun yang sedang login')
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!employee) throw ApiError.notFound('Pegawai')
+    // Nota yang pernah dia layani tetap ada (relasi kasir jadi kosong); absennya ikut terhapus.
     await prisma.employee.delete({ where: { id: req.params.id } })
     res.status(204).end()
   }),

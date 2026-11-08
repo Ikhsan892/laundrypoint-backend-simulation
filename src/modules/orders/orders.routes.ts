@@ -319,6 +319,27 @@ ordersRouter.patch(
   }),
 )
 
+// PUT /api/orders/:id/workers  { station, employeeIds[] } — siapa yang mengerjakan nota ini di station tsb (boleh lebih dari satu).
+ordersRouter.put(
+  '/:id/workers',
+  requireAuth,
+  validate({ body: z.object({ station: z.string().trim().min(1).max(40), employeeIds: z.array(z.string().min(1)).max(10) }) }),
+  asyncHandler(async (req, res) => {
+    const { station, employeeIds } = req.body as { station: string; employeeIds: string[] }
+    const order = await prisma.order.findUnique({ where: { id: req.params.id }, select: { workers: true } })
+    if (!order) throw ApiError.notFound('Order')
+    const found = await prisma.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, name: true } })
+    const list = employeeIds.map((id) => found.find((e) => e.id === id)).filter(Boolean)
+    const workers = { ...((order.workers as Record<string, unknown>) ?? {}), [station]: list }
+    const updated = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { workers: workers as Prisma.InputJsonValue },
+      include: orderInclude,
+    })
+    res.json({ data: serializeOrder(updated) })
+  }),
+)
+
 // PUT /api/orders/:id/items  { items[] } — kasir mengubah isi nota yang masih berjalan; total dihitung ulang.
 // Kalau total naik melebihi yang sudah dibayar, nota jadi belum lunas (sisanya ditagih saat serah terima).
 ordersRouter.put(
